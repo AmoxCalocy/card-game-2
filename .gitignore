@@ -1,0 +1,32 @@
+# Unity-generated project state (the Unity project is under Card2/)
+/Card2/[Ll]ibrary/
+/Card2/[Tt]emp/
+/Card2/[Ll]ogs/
+/Card2/[Oo]bj/
+/Card2/[Uu]ser[Ss]ettings/
+/Card2/[Mm]emoryCaptures/
+/Card2/[Rr]ecordings/
+/Card2/[Bb]uild/
+/Card2/[Bb]uilds/
+/Card2/sysinfo.txt
+
+# IDE and generated solution files
+.vs/
+*.csproj
+*.sln
+*.suo
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.unityproj
+*.opendb
+*.VC.db
+
+# Operating-system and editor clutter
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.tmp
+*.bak
+*~
