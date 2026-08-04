@@ -1,0 +1,13 @@
+{
+    "name": "OneJourney.EditModeTests",
+    "rootNamespace": "OneJourney.Tests.EditMode",
+    "references": [
+        "OneJourney.Core"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ]
+}
