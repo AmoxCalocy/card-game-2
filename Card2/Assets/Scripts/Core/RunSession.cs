@@ -61,6 +61,16 @@ namespace OneJourney.Core
 
         public static void StartNewGame(int? seedOverride = null)
         {
+            if (ContentRegistry.HasBlockingIssues)
+            {
+                RecordResolution(
+                    "内容校验",
+                    "新游戏被阻止",
+                    "存在 " + ContentRegistry.Issues.Count + " 个内容校验问题："
+                    + (ContentRegistry.Issues.Count > 0 ? ContentRegistry.Issues[0].ToString() : string.Empty));
+                return;
+            }
+
             if (!GameFlow.TryTransition(GameState.NewGame, "新游戏：会话初始化"))
             {
                 return;
@@ -69,7 +79,14 @@ namespace OneJourney.Core
             GameFlow.TryTransition(GameState.Map, "新游戏：初始化完成，进入地图");
             Seed = seedOverride ?? RequestedSeedFromArgs() ?? NewSeed();
             RecordsList.Clear();
-            RecordResolution("会话初始化", "新游戏开始", "随机种子 " + Seed + "，进入地图");
+            RecordResolution(
+                "会话初始化",
+                "新游戏开始",
+                "随机种子 " + Seed + "，进入地图；起始资源：粮食" + GameStartParameters.StartFood
+                + " 财富" + GameStartParameters.StartWealth
+                + " 声望" + GameStartParameters.StartReputation
+                + " 建材" + GameStartParameters.StartBuildingMaterials
+                + "；起始牌组 " + GameStartParameters.StartingDeck.Length + " 张");
         }
 
         public static void EnterTestPage(GameState page)

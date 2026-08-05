@@ -167,18 +167,37 @@ namespace OneJourney.Core
                 ? last.Value.Source + "：" + last.Value.Description + " → " + last.Value.Result
                 : "暂无";
 
-            var transition = GameFlow.LastTransition;
-            string lastTransitionText = transition.HasValue
-                ? RunSession.DisplayName(transition.Value.From) + " → " + RunSession.DisplayName(transition.Value.To) + "（" + transition.Value.Reason + "）"
-                : "暂无";
+            var log = GameFlow.Log;
+            string lastTransitionText;
+            if (log.Count == 0)
+            {
+                lastTransitionText = "暂无";
+            }
+            else
+            {
+                int start = Math.Max(0, log.Count - 3);
+                var lines = new string[log.Count - start];
+                for (int i = start; i < log.Count; i++)
+                {
+                    var t = log[i];
+                    lines[i - start] = RunSession.DisplayName(t.From) + " → " + RunSession.DisplayName(t.To) + "（" + t.Reason + "）";
+                }
+
+                lastTransitionText = string.Join("\n", lines);
+            }
+
+            string validationText = ContentRegistry.HasBlockingIssues
+                ? "内容校验：" + ContentRegistry.Issues.Count + " 个问题（首个：" + ContentRegistry.Issues[0] + "）"
+                : "内容校验：OK";
 
             _hudText.text = string.Format(
-                "随机种子：{0}\n当前状态：{1}\n当前配置：{2}\n最近一次规则结算：{3}\n最近状态切换：{4}",
+                "随机种子：{0}\n当前状态：{1}\n当前配置：{2}\n最近一次规则结算：{3}\n最近状态切换：{4}\n{5}",
                 RunSession.Seed,
                 RunSession.DisplayName(RunSession.CurrentState),
                 GameConfigProvider.Mode,
                 lastText,
-                lastTransitionText);
+                lastTransitionText,
+                validationText);
         }
 
         private void RefreshConfigUi()

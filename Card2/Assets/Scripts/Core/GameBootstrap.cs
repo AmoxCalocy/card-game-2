@@ -8,6 +8,7 @@ namespace OneJourney.Core
         private static void Initialize()
         {
             GameConfigProvider.Initialize();
+            ContentRegistry.LoadAll();
             RunSession.Reset();
         }
     }
