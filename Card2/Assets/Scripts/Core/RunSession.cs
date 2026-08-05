@@ -10,7 +10,13 @@ namespace OneJourney.Core
         Combat = 2,
         Map = 3,
         Event = 4,
-        Camp = 5
+        Camp = 5,
+        NewGame = 6,
+        Move = 7,
+        Reward = 8,
+        Victory = 9,
+        Defeat = 10,
+        Settlement = 11
     }
 
     public struct ResolutionRecord
@@ -34,7 +40,7 @@ namespace OneJourney.Core
 
         public static int Seed { get; private set; }
 
-        public static GameState CurrentState { get; private set; } = GameState.MainMenu;
+        public static GameState CurrentState => GameFlow.CurrentState;
 
         public static IReadOnlyList<ResolutionRecord> Records => RecordsList;
 
@@ -55,8 +61,13 @@ namespace OneJourney.Core
 
         public static void StartNewGame(int? seedOverride = null)
         {
+            if (!GameFlow.TryTransition(GameState.NewGame, "新游戏：会话初始化"))
+            {
+                return;
+            }
+
+            GameFlow.TryTransition(GameState.Map, "新游戏：初始化完成，进入地图");
             Seed = seedOverride ?? RequestedSeedFromArgs() ?? NewSeed();
-            CurrentState = GameState.Map;
             RecordsList.Clear();
             RecordResolution("会话初始化", "新游戏开始", "随机种子 " + Seed + "，进入地图");
         }
@@ -68,8 +79,12 @@ namespace OneJourney.Core
                 throw new ArgumentOutOfRangeException(nameof(page), page, "测试入口只接受战斗、地图、事件或营地页面");
             }
 
+            if (!GameFlow.TryTransition(page, "测试入口：直接进入" + DisplayName(page)))
+            {
+                return;
+            }
+
             Seed = RequestedSeedFromArgs() ?? NewSeed();
-            CurrentState = page;
             RecordsList.Clear();
             RecordResolution("测试入口", "直接进入" + DisplayName(page), "随机种子 " + Seed);
         }
@@ -88,7 +103,7 @@ namespace OneJourney.Core
         public static void Reset()
         {
             Seed = 0;
-            CurrentState = GameState.MainMenu;
+            GameFlow.Reset();
             RecordsList.Clear();
             Changed?.Invoke();
         }
@@ -109,6 +124,18 @@ namespace OneJourney.Core
                     return "事件";
                 case GameState.Camp:
                     return "营地";
+                case GameState.NewGame:
+                    return "新局初始化";
+                case GameState.Move:
+                    return "移动结算";
+                case GameState.Reward:
+                    return "奖励";
+                case GameState.Victory:
+                    return "胜利";
+                case GameState.Defeat:
+                    return "失败";
+                case GameState.Settlement:
+                    return "结算";
                 default:
                     return state.ToString();
             }

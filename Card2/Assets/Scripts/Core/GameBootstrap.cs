@@ -9,10 +9,6 @@ namespace OneJourney.Core
         {
             GameConfigProvider.Initialize();
             RunSession.Reset();
-
-            var root = new GameObject("GameRoot");
-            Object.DontDestroyOnLoad(root);
-            root.AddComponent<GameUi>();
         }
     }
 }
