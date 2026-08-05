@@ -40,6 +40,9 @@ namespace OneJourney.Core
 
         public static int Seed { get; private set; }
 
+        /// <summary>本局可复现随机数生成器（仅在 StartNewGame / EnterTestPage 之后可用）。</summary>
+        public static GameRandom Random { get; private set; }
+
         public static GameState CurrentState => GameFlow.CurrentState;
 
         public static IReadOnlyList<ResolutionRecord> Records => RecordsList;
@@ -78,6 +81,8 @@ namespace OneJourney.Core
 
             GameFlow.TryTransition(GameState.Map, "新游戏：初始化完成，进入地图");
             Seed = seedOverride ?? RequestedSeedFromArgs() ?? NewSeed();
+            Random = new GameRandom(Seed);
+            RunRecord.Clear();
             RecordsList.Clear();
             RecordResolution(
                 "会话初始化",
@@ -102,6 +107,8 @@ namespace OneJourney.Core
             }
 
             Seed = RequestedSeedFromArgs() ?? NewSeed();
+            Random = new GameRandom(Seed);
+            RunRecord.Clear();
             RecordsList.Clear();
             RecordResolution("测试入口", "直接进入" + DisplayName(page), "随机种子 " + Seed);
         }
@@ -120,7 +127,9 @@ namespace OneJourney.Core
         public static void Reset()
         {
             Seed = 0;
+            Random = null;
             GameFlow.Reset();
+            RunRecord.Clear();
             RecordsList.Clear();
             Changed?.Invoke();
         }

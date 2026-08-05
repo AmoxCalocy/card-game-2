@@ -25,6 +25,8 @@ namespace OneJourney.Core
 
         [Header("按钮绑定")]
         [SerializeField] private Button _startNewGameButton;
+        [SerializeField] private InputField _seedInput;
+        [SerializeField] private Button _startWithSeedButton;
         [SerializeField] private Button[] _testEntryButtons;
         [SerializeField] private GameState[] _testEntryStates;
         [SerializeField] private Button[] _modeSwitchButtons;
@@ -83,6 +85,11 @@ namespace OneJourney.Core
             _recordResolutionButton.onClick.AddListener(OnRecordSampleResolution);
             _returnToMenuButton.onClick.AddListener(OnReturnToMenu);
 
+            if (_startWithSeedButton != null)
+            {
+                _startWithSeedButton.onClick.AddListener(OnStartWithSeed);
+            }
+
             int testCount = Math.Min(_testEntryButtons.Length, _testEntryStates.Length);
             for (int i = 0; i < testCount; i++)
             {
@@ -125,6 +132,19 @@ namespace OneJourney.Core
         {
             RunSession.StartNewGame();
             ShowPage("地图（新游戏入口）", "新游戏会话已创建。后续步骤将在此实现地图流程；当前为第 1 步占位页面。");
+        }
+
+        private void OnStartWithSeed()
+        {
+            int? seed = null;
+            if (_seedInput != null && int.TryParse(_seedInput.text, out int parsed))
+            {
+                seed = parsed;
+            }
+
+            RunSession.StartNewGame(seed);
+            ShowPage("地图（指定种子）",
+                "新游戏会话已创建（" + (seed.HasValue ? "种子 " + seed.Value : "随机种子") + "）。");
         }
 
         private void OnEnterTestPage(GameState page)
@@ -190,14 +210,27 @@ namespace OneJourney.Core
                 ? "内容校验：" + ContentRegistry.Issues.Count + " 个问题（首个：" + ContentRegistry.Issues[0] + "）"
                 : "内容校验：OK";
 
+            int recordCount = RunRecord.Count;
+            string recordText;
+            if (recordCount == 0)
+            {
+                recordText = "本局记录：暂无";
+            }
+            else
+            {
+                var lastEntry = RunRecord.Entries[recordCount - 1];
+                recordText = "本局记录：" + recordCount + " 条（最新：" + RunRecordEntry.CategoryName(lastEntry.Category) + " #" + lastEntry.Index + "）";
+            }
+
             _hudText.text = string.Format(
-                "随机种子：{0}\n当前状态：{1}\n当前配置：{2}\n最近一次规则结算：{3}\n最近状态切换：{4}\n{5}",
+                "随机种子：{0}\n当前状态：{1}\n当前配置：{2}\n最近一次规则结算：{3}\n最近状态切换：{4}\n{5}\n{6}",
                 RunSession.Seed,
                 RunSession.DisplayName(RunSession.CurrentState),
                 GameConfigProvider.Mode,
                 lastText,
                 lastTransitionText,
-                validationText);
+                validationText,
+                recordText);
         }
 
         private void RefreshConfigUi()

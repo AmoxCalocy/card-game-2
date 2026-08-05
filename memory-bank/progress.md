@@ -9,5 +9,49 @@
 - 用户验证通过：主菜单、新游戏、四个测试入口、三套配置切换、HUD 显示均正常。
 - 配置事实：Release 配置 `_showTestHud=false`、`_enableTestEntries=false`（HUD 与测试入口隐藏）；开发/测试配置均开启。
 
+## 2026-08-05 · A0-2 定义游戏术语和状态边界（用户已验证）
+- 完成：
+  - `GameFlow.cs`（新）：流程状态机——11 个状态、转移表（`IsAllowed`）、`TryTransition` 校验（非法转移拒绝且无副作用并打警告）、状态日志（上限 100 条）、`Reset` 清空日志、`Changed` 事件。
+  - `RunSession.cs`：`GameState` 枚举追加 `NewGame/Move/Reward/Victory/Defeat/Settlement`（原有枚举值不变，场景序列化兼容）；`CurrentState` 委托 `GameFlow`；`StartNewGame` 走 主菜单→新局初始化→地图 两步转移，`EnterTestPage` 仅允许从主菜单进入；`DisplayName` 补齐新状态。
+  - `GameUi.cs`：HUD 增加「最近状态切换」行（显示最近 3 条，含 From/To/Reason），订阅 `GameFlow.Changed`；TestHud 高度 200→300。
+  - `GameFlowTests.cs`（新）：8 个 EditMode 用例（新游戏路径/非法转移/重复切换/四测试入口/完整路线/失败重开/结算隔离/全状态可达性）。
+  - 设计文档：`design/glossary.md`（术语表）、`design/game-state-flow.md`（状态流转定义）。
+- 用户反馈并修复：HUD 第五行曾只显示最后一条切换（两次连续转移只显示后一次），改为显示最近 3 条。
+- 用户验证通过：EditMode 测试与 Play 模式状态切换均正常。
+
+## 2026-08-05 · A0-3 制定基础数值与内容清单（用户已验证）
+- 完成：
+  - `design/mvp-configuration-tables.md`（已有 v0.1 完整配置表）新增 **10.1 测试用例编号规则**：TC-C01…TC-C40、TC-P01…、TC-EN01…、TC-E01…、TC-R01…、TC-B01…、TC-S01、TC-MAP-PLAINS/JUNGLE。
+  - `GameStartParameters.cs`（新，A0-4 步已从 GameRules.cs 重命名）：第一版起始参数唯一代码来源——主角 45 血/6 指令伤害、上阵 4 人、牌组 10–30、手牌 3/1/5、能量 3、起始资源（粮 14 财 30 声望 0 建材 0）、粮食不足惩罚（主角 +1 疲劳、风险 +2）、风险规则（阈值 10、危机后重置 5）、起始牌组 10 张（C01×4、C09×3、C17、C33、C36）、垂直切片目标 EN10。
+  - `RunSession.cs`：新游戏结算记录包含起始资源摘要（HUD 可查）。
+  - `GameStartParametersTests.cs`（新）：5 个 EditMode 用例（参数固定值、起始牌组与配置表一致、十局新游戏起始资源一致且种子互异、指定种子记录）。
+- 验证：十局新游戏种子唯一、起始资源完全一致；配置表 92 个 ID 唯一、47 处引用全部可解析；用户验证通过。
+
+## 2026-08-05 · A0-4 建立数据校验与错误呈现规范（用户已验证）
+- 完成：
+  - `ContentModels.cs`（新）— 7 类内容数据模型（CardData/PartnerData/EnemyData/EventData/RelicData/NodeData/BuildingData），均继承 `ContentBase : ScriptableObject`，含必填字段注释与 `[Range]` 约束。
+  - `ContentCatalog.cs`（新）— 内容 ID 清单（40 卡×8 伙伴×10 敌×20 事件×8 遗物×5 建筑）+ 加入卡/解锁卡/事件授予卡/事件战斗敌人引用表。
+  - `ContentValidator.cs`（新）— 校验纯函数 + `ContentRegistry`：必填/范围/引用/ID 唯一性检查；`LoadAll()` 从 `Resources/Content` 加载；`HasBlockingIssues` 时阻止新游戏；`Clear()` 供测试隔离与修复后重加载。
+  - `GameBootstrap.cs` — 接入 `ContentRegistry.LoadAll()`。
+  - `RunSession.cs` — `StartNewGame` 在阻塞时记录「内容校验」结算并拒绝进入。
+  - `GameUi.cs` — HUD 第 6 行显示「内容校验：OK / N 个问题（首个：…）」。
+  - `ContentValidationTests.cs`（新）— 12 个 EditMode 用例（缺必填/缺 ID/引用不存在/越界/重复 ID/事件选项不足/敌人无意图/零权重意图/修复通过/坏内容阻止新游戏/修复后启动），`LogAssert.Expect` 声明预期错误日志。
+  - `design/content-validation-spec.md`（新）— 校验规范：必填字段表、校验流程、错误格式、新增内容要求。
+- 验证：Test Runner 全绿（24+ 用例），Play 模式 HUD 显示「内容校验：OK」且新游戏正常进入。
+
+## 2026-08-05 · A0-5 实现可复现的随机与结算记录（用户已验证）
+- 完成：
+  - `GameRandom.cs`（新）— 带种子 `System.Random` 包装：`Next`/`NextFloat`/`Shuffle`(Fisher-Yates)/`WeightedPick`（空池/零权重/负权重保护）。
+  - `RunRecord.cs`（新）— 有序本局记录（上限 200 条），5 类：抽牌/敌人意图/地图分支/事件选项/奖励选择。
+  - `RunSession.cs` — `Random` 随机器在 `StartNewGame`/`EnterTestPage` 用种子初始化，`Reset` 清理；`RunRecord.Clear()` 嵌入生命周期。
+  - `GameUi.cs` — 场景新增 `InputField_种子`（左下角 250×40）+ `Button_指定种子新游戏`（180×40）；HUD 第 7 行显示本局记录状态。
+  - `GameRandomTests.cs`（新）— 12 个 EditMode 用例。
+  - `RunRecordTests.cs`（新）— 5 个 EditMode 用例。
+- 验证：Test Runner 全绿；Play 模式指定种子 12345→HUD 正确显示；留空→随机种子。
+
+## 协作规则（用户 2026-08-05 确认）
+- 每步完成后：更新文档与开始下一步**分开**，均需用户明确告知后才实施。
+
 ## 进行中
-- A0-2 定义游戏术语和状态边界：**已实现，等待用户验证**（GameFlow.cs 状态机 + 状态日志、GameState 枚举扩展、GameUi HUD 状态切换行、GameFlowTests 8 个用例；设计文档 design/glossary.md、design/game-state-flow.md）。用户验证通过后更新本文档并进入 A0-3。
+- 下一步：A1-6 搭建战斗的初始化与结束规则（等待用户指示开始）。
+
