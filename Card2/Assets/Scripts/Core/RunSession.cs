@@ -111,6 +111,32 @@ namespace OneJourney.Core
             RunRecord.Clear();
             RecordsList.Clear();
             RecordResolution("测试入口", "直接进入" + DisplayName(page), "随机种子 " + Seed);
+
+            if (page == GameState.Combat)
+            {
+                InitTestCombat();
+            }
+        }
+
+        private static void InitTestCombat()
+        {
+            var player = CombatUnit.CreatePlayer(45, 6);
+            var companion = CombatUnit.CreateCompanion("P01", "阿德里安(测试)", 42, 5);
+            var enemy1 = CombatUnit.CreateEnemy("EN01", "路匪", 28);
+            var enemy2 = CombatUnit.CreateEnemy("EN02", "野犬", 22);
+
+            var deck = new List<string>(GameStartParameters.StartingDeck);
+            CombatManager.Init(
+                new[] { player, companion },
+                new[] { enemy1, enemy2 },
+                deck);
+
+            RecordResolution(
+                "战斗初始化",
+                "测试战斗已启动",
+                CombatManager.IsActive
+                    ? "玩家队伍 " + CombatManager.PlayerTeam.Count + " 人 / 敌人 " + CombatManager.EnemyTeam.Count + " 个"
+                    : "初始化失败（检查日志）");
         }
 
         public static void RecordResolution(string source, string description, string result)
@@ -128,6 +154,7 @@ namespace OneJourney.Core
         {
             Seed = 0;
             Random = null;
+            CombatManager.End();
             GameFlow.Reset();
             RunRecord.Clear();
             RecordsList.Clear();

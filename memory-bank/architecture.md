@@ -32,12 +32,18 @@
 - `GameRandomTests.cs` — 12 个 EditMode 用例（同种子一致/异种子不同/洗牌确定/空池/零权重/负权重/泛型加权）。
 - `RunRecordTests.cs` — 5 个 EditMode 用例（记录顺序/清空/超上限/分类名）。
 
+## 战斗系统
+- `CombatUnit.cs` — 战斗单位：HP/护甲/存活/伤害吸收(护甲优先)/治愈/独立副本。
+- `CombatDeck.cs` — 独立牌堆：抽牌堆/手牌/弃牌堆/消耗区；`InitFromCampaign`/`DrawToHand`(空堆洗回+手牌上限)/`DiscardHand`/`ExhaustFromHand`。
+- `CombatManager.cs` — 生命周期 + 回合结构：`Phase`/`TurnPhase`(6个阶段)/`TurnNumber`/`Energy`(MaxEnergy=3，每回合重置)；`Init` 自动开始第 1 回合；`EndPlayerTurn`→敌方回合→下一回合；`CanPlayerAct`/`SpendEnergy` 校验。
+- `CombatManagerTests.cs` — 20 个 EditMode 用例。
+
 ## UI 结构（场景组件化）
-- `GameUi.cs` — 场景 UI 驱动：全部元素通过 `[SerializeField]` 持有（面板、HUD、页面标题/描述、按钮数组、InputField_种子/Button_指定种子新游戏、按配置显隐的元素列表）；`Awake` 绑定按钮回调并订阅事件；`RefreshConfigUi` 按配置控制显隐。
+- `GameUi.cs` — 场景 UI 驱动：`[SerializeField]` 持有面板/HUD/标题/描述/按钮（含种子输入、战斗胜利/失败按钮）/显隐元素；`BuildCombatDescription` 生成战斗状态文本。
 - HUD（TestHud，尺寸 680×300）：7 行文本——随机种子 / 当前状态 / 当前配置 / 最近一次规则结算 / 最近状态切换（最近 3 条）/ 内容校验状态 / 本局记录（N 条+最新类别 #序号）。
 - Canvas：ScreenSpaceOverlay + CanvasScaler（1920×1080，match 0.5）。**子对象顺序即渲染顺序**：MainMenu → TestPage → TestHud（HUD 在顶层）。
 - MainMenu：ScrollRect + Viewport(RectMask2D) + Content(VerticalLayoutGroup，childControlWidth=false，元素宽 700，内容高 706)，增删按钮自动重排。
-- TestPage：VerticalLayoutGroup，默认 Inactive，由按钮进入；标题/描述/记录按钮/返回按钮。
+- TestPage：VerticalLayoutGroup，默认 Inactive；标题/描述/模拟胜利/模拟失败/记录按钮/返回按钮；战斗按钮仅 Combat 状态显示。
 - EventSystem：EventSystem + StandaloneInputModule（Legacy Input）。
 
 ## 事件流

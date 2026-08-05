@@ -49,9 +49,28 @@
   - `RunRecordTests.cs`（新）— 5 个 EditMode 用例。
 - 验证：Test Runner 全绿；Play 模式指定种子 12345→HUD 正确显示；留空→随机种子。
 
+## 2026-08-05 · A1-6 搭建战斗的初始化与结束规则（用户已验证）
+- 完成：
+  - `CombatUnit.cs`（新）— 战斗单位：HP/护甲/存活/伤害吸收/治愈/独立副本。
+  - `CombatDeck.cs`（新）— 战斗独立牌堆：抽牌堆/手牌/弃牌堆/消耗区；空堆洗回、手牌上限。
+  - `CombatManager.cs`（新）— 生命周期：Init（克隆+安全拦截）→Running→胜负判定→End（清理）；撤退禁用。
+  - `RunSession.cs` — `EnterTestPage(Combat)` 初始化 2v2 测试战斗。
+  - `GameUi.cs` — 测试页显示战斗状态；新增「模拟胜利」「模拟失败」按钮。
+  - `CombatManagerTests.cs`（新）— 11 个 EditMode 用例。
+  - 修复：`RunSessionTests.EnterTestPage_SpecifiedSeed` 断言更新。
+- 验证：Test Runner 全绿；Play 模式战斗入口正常，按钮可用，返回重进不残留。
+
+## 2026-08-05 · A1-7 实现回合结构与共享能量（用户已验证）
+- 完成：
+  - `CombatManager.cs` — 新增 `TurnPhase`/`TurnNumber`/`Energy`(MaxEnergy=3)；`BeginPlayerTurn`/`EndPlayerTurn`/敌方回合流转；`CanPlayerAct`/`SpendEnergy` 阶段+能量校验。
+  - `GameUi.cs` — 新增「消耗 1 点能量」「结束回合」按钮，四按钮横向排列在 `CombatActions` 容器；HUD 右上角。
+  - `RunSession.cs` — `Reset` 加入 `CombatManager.End()` 回合清零。
+  - `CombatManagerTests.cs` — +9 用例，共 20 用例。
+- 验证：Test Runner 全绿；Play 模式能量消耗、回合流转、返回重进清零均正常。
+
 ## 协作规则（用户 2026-08-05 确认）
 - 每步完成后：更新文档与开始下一步**分开**，均需用户明确告知后才实施。
 
 ## 进行中
-- 下一步：A1-6 搭建战斗的初始化与结束规则（等待用户指示开始）。
+- 下一步：A1-8 实现抽牌堆、弃牌堆与消耗区（等待用户指示开始）。
 

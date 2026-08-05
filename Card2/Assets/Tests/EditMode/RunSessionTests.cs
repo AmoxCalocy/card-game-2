@@ -27,7 +27,9 @@ namespace OneJourney.Tests.EditMode
             RunSession.EnterTestPage(GameState.Combat);
 
             Assert.AreEqual(GameState.Combat, RunSession.CurrentState);
-            Assert.AreEqual("测试入口", RunSession.LastResolution.Value.Source);
+            Assert.GreaterOrEqual(RunSession.Records.Count, 2, "应至少有测试入口和战斗初始化两条记录");
+            Assert.AreEqual("测试入口", RunSession.Records[0].Source);
+            Assert.AreEqual("战斗初始化", RunSession.Records[1].Source);
         }
 
         [Test]

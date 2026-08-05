@@ -34,6 +34,10 @@ namespace OneJourney.Core
         [SerializeField] private Button _quitButton;
         [SerializeField] private Button _recordResolutionButton;
         [SerializeField] private Button _returnToMenuButton;
+        [SerializeField] private Button _combatVictoryButton;
+        [SerializeField] private Button _combatDefeatButton;
+        [SerializeField] private Button _endTurnButton;
+        [SerializeField] private Button _spendEnergyButton;
 
         private void Awake()
         {
@@ -90,6 +94,26 @@ namespace OneJourney.Core
                 _startWithSeedButton.onClick.AddListener(OnStartWithSeed);
             }
 
+            if (_combatVictoryButton != null)
+            {
+                _combatVictoryButton.onClick.AddListener(OnSimulateVictory);
+            }
+
+            if (_combatDefeatButton != null)
+            {
+                _combatDefeatButton.onClick.AddListener(OnSimulateDefeat);
+            }
+
+            if (_endTurnButton != null)
+            {
+                _endTurnButton.onClick.AddListener(OnEndTurn);
+            }
+
+            if (_spendEnergyButton != null)
+            {
+                _spendEnergyButton.onClick.AddListener(OnSpendEnergy);
+            }
+
             int testCount = Math.Min(_testEntryButtons.Length, _testEntryStates.Length);
             for (int i = 0; i < testCount; i++)
             {
@@ -125,6 +149,13 @@ namespace OneJourney.Core
             _pageDescriptionText.text = description;
             _menuPanel.SetActive(false);
             _pagePanel.SetActive(true);
+
+            bool isCombat = RunSession.CurrentState == GameState.Combat && CombatManager.IsActive;
+            if (_combatVictoryButton != null) _combatVictoryButton.gameObject.SetActive(isCombat);
+            if (_combatDefeatButton != null) _combatDefeatButton.gameObject.SetActive(isCombat);
+            if (_endTurnButton != null) _endTurnButton.gameObject.SetActive(isCombat && CombatManager.CanPlayerAct);
+            if (_spendEnergyButton != null) _spendEnergyButton.gameObject.SetActive(isCombat && CombatManager.CanPlayerAct && CombatManager.Energy > 0);
+
             Refresh();
         }
 
@@ -150,14 +181,64 @@ namespace OneJourney.Core
         private void OnEnterTestPage(GameState page)
         {
             RunSession.EnterTestPage(page);
-            ShowPage(
-                "测试入口：" + RunSession.DisplayName(page),
-                "当前为第 1 步占位页面，用于验证测试入口与退出清理。后续步骤将在此实现" + RunSession.DisplayName(page) + "流程。");
+            string desc;
+            if (page == GameState.Combat && CombatManager.IsActive)
+            {
+                desc = BuildCombatDescription();
+            }
+            else
+            {
+                desc = "当前为占位页面，用于验证测试入口与退出清理。后续步骤将在此实现" + RunSession.DisplayName(page) + "流程。";
+            }
+
+            ShowPage("测试入口：" + RunSession.DisplayName(page), desc);
         }
 
         private void OnRecordSampleResolution()
         {
             RunSession.RecordResolution("测试结算（示例）", "普通伤害结算", "目标生命 28 → 22，护甲 0");
+        }
+
+        private void OnSimulateVictory()
+        {
+            if (!CombatManager.IsActive) return;
+
+            // 将所有敌人血量清零模拟胜利
+            foreach (var e in CombatManager.EnemyTeam)
+            {
+                if (e.IsAlive) e.TakeDamage(e.CurrentHp + e.Armor);
+            }
+
+            string result = CombatManager.CheckEndCondition();
+            RunSession.RecordResolution("战斗结算", "模拟胜利", result ?? "未知");
+            ShowPage("测试入口：战斗", BuildCombatDescription());
+        }
+
+        private void OnSimulateDefeat()
+        {
+            if (!CombatManager.IsActive) return;
+
+            CombatManager.ForceDefeat();
+            RunSession.RecordResolution("战斗结算", "模拟失败", "主角阵亡");
+            ShowPage("测试入口：战斗", BuildCombatDescription());
+        }
+
+        private void OnEndTurn()
+        {
+            if (!CombatManager.CanPlayerAct) return;
+
+            CombatManager.EndPlayerTurn();
+            RunSession.RecordResolution("回合结算", "结束第 " + CombatManager.TurnNumber + " 回合", "进入敌方回合");
+            ShowPage("测试入口：战斗", BuildCombatDescription());
+        }
+
+        private void OnSpendEnergy()
+        {
+            if (!CombatManager.CanSpendEnergy(1)) return;
+
+            CombatManager.SpendEnergy(1);
+            RunSession.RecordResolution("回合操作", "消耗 1 点能量", "剩余能量 " + CombatManager.Energy);
+            ShowPage("测试入口：战斗", BuildCombatDescription());
         }
 
         private void OnReturnToMenu()
@@ -248,6 +329,44 @@ namespace OneJourney.Core
             SetElementsActive(_modeSwitchElements, showModeSwitch);
             _hudText.gameObject.SetActive(config != null && config.ShowTestHud);
             Refresh();
+        }
+
+        private static string BuildCombatDescription()
+        {
+            if (!CombatManager.IsActive) return "战斗未激活";
+
+            string desc = "回合 " + CombatManager.TurnNumber + " | 能量 " + CombatManager.Energy + "/" + CombatManager.MaxEnergy + " | 阶段：" + CombatManager.CurrentTurnPhase;
+            desc += " | 可行动：" + CombatManager.CanPlayerAct;
+
+            desc += "\n玩家队伍：";
+            if (CombatManager.PlayerTeam != null)
+            {
+                foreach (var u in CombatManager.PlayerTeam)
+                {
+                    string alive = u.IsAlive ? "" : " [阵亡]";
+                    desc += "\n  " + u.DisplayName + " HP:" + u.CurrentHp + "/" + u.MaxHp + " 护甲:" + u.Armor + alive;
+                }
+            }
+
+            desc += "\n敌人队伍：";
+            if (CombatManager.EnemyTeam != null)
+            {
+                foreach (var e in CombatManager.EnemyTeam)
+                {
+                    string alive = e.IsAlive ? "" : " [阵亡]";
+                    desc += "\n  " + e.DisplayName + " HP:" + e.CurrentHp + "/" + e.MaxHp + " 护甲:" + e.Armor + alive;
+                }
+            }
+
+            if (CombatManager.Deck != null)
+            {
+                desc += "\n牌堆：抽牌堆 " + CombatManager.Deck.DrawPileCount
+                    + " / 手牌 " + CombatManager.Deck.HandSize
+                    + " / 弃牌堆 " + CombatManager.Deck.DiscardPileCount
+                    + " / 消耗区 " + CombatManager.Deck.ExhaustedCount;
+            }
+
+            return desc;
         }
 
         private static void SetElementsActive(List<GameObject> elements, bool active)
