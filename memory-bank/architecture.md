@@ -34,7 +34,7 @@
 
 ## 战斗系统
 - `CombatUnit.cs` — 战斗单位：HP/护甲/存活/伤害吸收(护甲优先)/治愈/独立副本。
-- `CombatDeck.cs` — 独立牌堆：抽牌堆/手牌/弃牌堆/消耗区；`InitFromCampaign`/`DrawToHand`(空堆洗回+手牌上限)/`DiscardHand`/`ExhaustFromHand`。
+- `CombatDeck.cs` — 独立牌堆：`InitFromCampaign`/`DrawToHand`(空堆洗回+手牌上限)/`DiscardHand`(临时卡→消耗区，普通卡→弃牌堆)/`ExhaustFromHand`。
 - `CombatManager.cs` — 生命周期 + 回合结构：`Phase`/`TurnPhase`(6个阶段)/`TurnNumber`/`Energy`(MaxEnergy=3，每回合重置)；`Init` 自动开始第 1 回合；`EndPlayerTurn`→敌方回合→下一回合；`CanPlayerAct`/`SpendEnergy` 校验。
 - `CombatManagerTests.cs` — 20 个 EditMode 用例。
 

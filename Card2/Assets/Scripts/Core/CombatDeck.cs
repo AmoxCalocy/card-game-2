@@ -82,9 +82,18 @@ namespace OneJourney.Core
             return drawn;
         }
 
-        /// <summary>将手牌全部移入弃牌堆。</summary>
+        /// <summary>将手牌全部移入弃牌堆（临时卡进消耗区）。</summary>
         public void DiscardHand()
         {
+            for (int i = Hand.Count - 1; i >= 0; i--)
+            {
+                if (Hand[i].StartsWith("TEMP_"))
+                {
+                    ExhaustZone.Add(Hand[i]);
+                    Hand.RemoveAt(i);
+                }
+            }
+
             DiscardPile.AddRange(Hand);
             Hand.Clear();
         }

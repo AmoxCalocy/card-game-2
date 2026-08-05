@@ -38,6 +38,10 @@ namespace OneJourney.Core
         [SerializeField] private Button _combatDefeatButton;
         [SerializeField] private Button _endTurnButton;
         [SerializeField] private Button _spendEnergyButton;
+        [SerializeField] private Button _drawCardButton;
+        [SerializeField] private Button _discardHandButton;
+        [SerializeField] private Button _exhaustLastButton;
+        [SerializeField] private Button _addTempCardButton;
 
         private void Awake()
         {
@@ -114,6 +118,26 @@ namespace OneJourney.Core
                 _spendEnergyButton.onClick.AddListener(OnSpendEnergy);
             }
 
+            if (_drawCardButton != null)
+            {
+                _drawCardButton.onClick.AddListener(OnDrawCard);
+            }
+
+            if (_discardHandButton != null)
+            {
+                _discardHandButton.onClick.AddListener(OnDiscardHand);
+            }
+
+            if (_exhaustLastButton != null)
+            {
+                _exhaustLastButton.onClick.AddListener(OnExhaustLast);
+            }
+
+            if (_addTempCardButton != null)
+            {
+                _addTempCardButton.onClick.AddListener(OnAddTempCard);
+            }
+
             int testCount = Math.Min(_testEntryButtons.Length, _testEntryStates.Length);
             for (int i = 0; i < testCount; i++)
             {
@@ -154,7 +178,16 @@ namespace OneJourney.Core
             if (_combatVictoryButton != null) _combatVictoryButton.gameObject.SetActive(isCombat);
             if (_combatDefeatButton != null) _combatDefeatButton.gameObject.SetActive(isCombat);
             if (_endTurnButton != null) _endTurnButton.gameObject.SetActive(isCombat && CombatManager.CanPlayerAct);
-            if (_spendEnergyButton != null) _spendEnergyButton.gameObject.SetActive(isCombat && CombatManager.CanPlayerAct && CombatManager.Energy > 0);
+            if (_spendEnergyButton != null)
+            {
+                bool canSpend = isCombat && CombatManager.CanPlayerAct && CombatManager.Energy > 0;
+                _spendEnergyButton.gameObject.SetActive(isCombat && CombatManager.CanPlayerAct);
+                _spendEnergyButton.interactable = canSpend;
+            }
+            if (_drawCardButton != null) _drawCardButton.gameObject.SetActive(isCombat && CombatManager.CanPlayerAct);
+            if (_discardHandButton != null) _discardHandButton.gameObject.SetActive(isCombat && CombatManager.CanPlayerAct);
+            if (_exhaustLastButton != null) _exhaustLastButton.gameObject.SetActive(isCombat && CombatManager.CanPlayerAct);
+            if (_addTempCardButton != null) _addTempCardButton.gameObject.SetActive(isCombat && CombatManager.CanPlayerAct);
 
             Refresh();
         }
@@ -209,8 +242,9 @@ namespace OneJourney.Core
                 if (e.IsAlive) e.TakeDamage(e.CurrentHp + e.Armor);
             }
 
-            string result = CombatManager.CheckEndCondition();
-            RunSession.RecordResolution("战斗结算", "模拟胜利", result ?? "未知");
+            CombatManager.CheckEndCondition();
+            CombatManager.End();
+            RunSession.RecordResolution("战斗结算", "模拟胜利", "战斗结束，临时状态已清理");
             ShowPage("测试入口：战斗", BuildCombatDescription());
         }
 
@@ -219,7 +253,8 @@ namespace OneJourney.Core
             if (!CombatManager.IsActive) return;
 
             CombatManager.ForceDefeat();
-            RunSession.RecordResolution("战斗结算", "模拟失败", "主角阵亡");
+            CombatManager.End();
+            RunSession.RecordResolution("战斗结算", "模拟失败", "主角阵亡，临时状态已清理");
             ShowPage("测试入口：战斗", BuildCombatDescription());
         }
 
@@ -238,6 +273,56 @@ namespace OneJourney.Core
 
             CombatManager.SpendEnergy(1);
             RunSession.RecordResolution("回合操作", "消耗 1 点能量", "剩余能量 " + CombatManager.Energy);
+            ShowPage("测试入口：战斗", BuildCombatDescription());
+        }
+
+        private void OnDrawCard()
+        {
+            if (!CombatManager.CanPlayerAct) return;
+
+            if (CombatManager.Deck.HandSize >= GameStartParameters.MaxHandSize)
+            {
+                RunSession.RecordResolution("牌堆操作", "抽牌失败", "手牌已满（上限 " + GameStartParameters.MaxHandSize + "）");
+                ShowPage("测试入口：战斗", BuildCombatDescription());
+                return;
+            }
+
+            int drawn = CombatManager.Deck.DrawToHand(1, GameStartParameters.MaxHandSize);
+            string msg = drawn > 0
+                ? "抽到 " + CombatManager.Deck.Hand[CombatManager.Deck.HandSize - 1]
+                : "牌堆已空";
+            RunSession.RecordResolution("牌堆操作", "抽 1 张牌", msg);
+            ShowPage("测试入口：战斗", BuildCombatDescription());
+        }
+
+        private void OnDiscardHand()
+        {
+            if (!CombatManager.CanPlayerAct || CombatManager.Deck == null) return;
+
+            int count = CombatManager.Deck.HandSize;
+            CombatManager.Deck.DiscardHand();
+            RunSession.RecordResolution("牌堆操作", "弃掉全部手牌", count + " 张进入弃牌堆");
+            ShowPage("测试入口：战斗", BuildCombatDescription());
+        }
+
+        private void OnExhaustLast()
+        {
+            if (!CombatManager.CanPlayerAct || CombatManager.Deck == null) return;
+            if (CombatManager.Deck.HandSize == 0) return;
+
+            string card = CombatManager.Deck.Hand[CombatManager.Deck.HandSize - 1];
+            CombatManager.Deck.ExhaustFromHand(card);
+            RunSession.RecordResolution("牌堆操作", "消耗 " + card, "进入消耗区，不再回到牌堆");
+            ShowPage("测试入口：战斗", BuildCombatDescription());
+        }
+
+        private void OnAddTempCard()
+        {
+            if (!CombatManager.CanPlayerAct || CombatManager.Deck == null) return;
+
+            string tempId = "TEMP_" + CombatManager.TurnNumber + "_" + CombatManager.Deck.HandSize;
+            CombatManager.Deck.Hand.Add(tempId);
+            RunSession.RecordResolution("牌堆操作", "生成临时卡 " + tempId, "仅本场战斗有效");
             ShowPage("测试入口：战斗", BuildCombatDescription());
         }
 
@@ -360,8 +445,19 @@ namespace OneJourney.Core
 
             if (CombatManager.Deck != null)
             {
+                desc += "\n手牌：" + CombatManager.Deck.HandSize + " 张";
+                if (CombatManager.Deck.HandSize > 0)
+                {
+                    desc += " [";
+                    for (int i = 0; i < CombatManager.Deck.HandSize; i++)
+                    {
+                        if (i > 0) desc += ", ";
+                        desc += CombatManager.Deck.Hand[i];
+                    }
+                    desc += "]";
+                }
+
                 desc += "\n牌堆：抽牌堆 " + CombatManager.Deck.DrawPileCount
-                    + " / 手牌 " + CombatManager.Deck.HandSize
                     + " / 弃牌堆 " + CombatManager.Deck.DiscardPileCount
                     + " / 消耗区 " + CombatManager.Deck.ExhaustedCount;
             }
