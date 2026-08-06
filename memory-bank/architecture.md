@@ -35,15 +35,17 @@
 ## 战斗系统
 - `CombatUnit.cs` — 战斗单位：HP/护甲/存活/伤害吸收(护甲优先)/治愈/独立副本。
 - `CombatDeck.cs` — 独立牌堆：`InitFromCampaign`/`DrawToHand`(空堆洗回+手牌上限)/`DiscardHand`(临时卡→消耗区，普通卡→弃牌堆)/`ExhaustFromHand`。
-- `CombatManager.cs` — 生命周期 + 回合结构：`Phase`/`TurnPhase`(6个阶段)/`TurnNumber`/`Energy`(MaxEnergy=3，每回合重置)；`Init` 自动开始第 1 回合；`EndPlayerTurn`→敌方回合→下一回合；`CanPlayerAct`/`SpendEnergy` 校验。
+- `CombatManager.cs` — 生命周期 + 回合结构：`Phase`/`TurnPhase`/`TurnNumber`/`Energy`；`Morale`/`MoraleUsedThisTurn`；回合开始双方流血结算；`CanPlayerAct`/`SpendEnergy`/`RefundEnergy`。
 - `CombatManagerTests.cs` — 20 个 EditMode 用例。
+- `CombatResolver.cs` — 目标解析（6 种 TargetType）+ 伤害管线（护甲→生命→死亡→结束检查）+ `PlayTestCard`（无目标退款）。
+- `CombatResolverTests.cs` — 18 个 EditMode 用例（目标范围/护甲边界/批内胜利/死目标跳过/退款）。
 
 ## UI 结构（场景组件化）
 - `GameUi.cs` — 场景 UI 驱动：`[SerializeField]` 持有面板/HUD/标题/描述/按钮（含种子输入、战斗胜利/失败按钮）/显隐元素；`BuildCombatDescription` 生成战斗状态文本。
 - HUD（TestHud，尺寸 680×300）：7 行文本——随机种子 / 当前状态 / 当前配置 / 最近一次规则结算 / 最近状态切换（最近 3 条）/ 内容校验状态 / 本局记录（N 条+最新类别 #序号）。
 - Canvas：ScreenSpaceOverlay + CanvasScaler（1920×1080，match 0.5）。**子对象顺序即渲染顺序**：MainMenu → TestPage → TestHud（HUD 在顶层）。
 - MainMenu：ScrollRect + Viewport(RectMask2D) + Content(VerticalLayoutGroup，childControlWidth=false，元素宽 700，内容高 706)，增删按钮自动重排。
-- TestPage：VerticalLayoutGroup，默认 Inactive；标题/描述/模拟胜利/模拟失败/记录按钮/返回按钮；战斗按钮仅 Combat 状态显示。
+- TestPage：VerticalLayoutGroup，默认 Inactive；标题/描述/`CombatActions`（GridLayoutGroup 5×2，字号 16）/记录按钮/返回按钮；战斗按钮仅 Combat 状态显示。
 - EventSystem：EventSystem + StandaloneInputModule（Legacy Input）。
 
 ## 事件流

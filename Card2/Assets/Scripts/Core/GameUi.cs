@@ -42,6 +42,12 @@ namespace OneJourney.Core
         [SerializeField] private Button _discardHandButton;
         [SerializeField] private Button _exhaustLastButton;
         [SerializeField] private Button _addTempCardButton;
+        [SerializeField] private Button _playSingleCardButton;
+        [SerializeField] private Button _playAoeCardButton;
+        [SerializeField] private Button _bleedButton;
+        [SerializeField] private Button _diseaseButton;
+        [SerializeField] private Button _fatigueButton;
+        [SerializeField] private Button _moraleButton;
 
         private void Awake()
         {
@@ -138,6 +144,36 @@ namespace OneJourney.Core
                 _addTempCardButton.onClick.AddListener(OnAddTempCard);
             }
 
+            if (_playSingleCardButton != null)
+            {
+                _playSingleCardButton.onClick.AddListener(() => OnPlayTestCard(TargetType.SingleEnemy, 1, 6));
+            }
+
+            if (_playAoeCardButton != null)
+            {
+                _playAoeCardButton.onClick.AddListener(() => OnPlayTestCard(TargetType.AllEnemies, 2, 5));
+            }
+
+            if (_bleedButton != null)
+            {
+                _bleedButton.onClick.AddListener(() => OnAddStatus("流血", () => CombatStatus.AddBleed(CombatManager.EnemyTeam[0], 2)));
+            }
+
+            if (_diseaseButton != null)
+            {
+                _diseaseButton.onClick.AddListener(() => OnAddStatus("疾病", () => CombatStatus.AddDisease(CombatManager.EnemyTeam[0], 1)));
+            }
+
+            if (_fatigueButton != null)
+            {
+                _fatigueButton.onClick.AddListener(() => OnAddStatus("疲劳", () => CombatStatus.AddFatigue(CombatManager.PlayerTeam[0], 1)));
+            }
+
+            if (_moraleButton != null)
+            {
+                _moraleButton.onClick.AddListener(() => OnAddStatus("士气", () => CombatManager.AddMorale(2)));
+            }
+
             int testCount = Math.Min(_testEntryButtons.Length, _testEntryStates.Length);
             for (int i = 0; i < testCount; i++)
             {
@@ -188,6 +224,12 @@ namespace OneJourney.Core
             if (_discardHandButton != null) _discardHandButton.gameObject.SetActive(isCombat && CombatManager.CanPlayerAct);
             if (_exhaustLastButton != null) _exhaustLastButton.gameObject.SetActive(isCombat && CombatManager.CanPlayerAct);
             if (_addTempCardButton != null) _addTempCardButton.gameObject.SetActive(isCombat && CombatManager.CanPlayerAct);
+            if (_playSingleCardButton != null) _playSingleCardButton.gameObject.SetActive(isCombat && CombatManager.CanPlayerAct);
+            if (_playAoeCardButton != null) _playAoeCardButton.gameObject.SetActive(isCombat && CombatManager.CanPlayerAct);
+            if (_bleedButton != null) _bleedButton.gameObject.SetActive(isCombat && CombatManager.CanPlayerAct);
+            if (_diseaseButton != null) _diseaseButton.gameObject.SetActive(isCombat && CombatManager.CanPlayerAct);
+            if (_fatigueButton != null) _fatigueButton.gameObject.SetActive(isCombat && CombatManager.CanPlayerAct);
+            if (_moraleButton != null) _moraleButton.gameObject.SetActive(isCombat && CombatManager.CanPlayerAct);
 
             Refresh();
         }
@@ -326,6 +368,25 @@ namespace OneJourney.Core
             ShowPage("测试入口：战斗", BuildCombatDescription());
         }
 
+        private void OnPlayTestCard(TargetType type, int cost, int damage)
+        {
+            if (!CombatManager.CanPlayerAct) return;
+
+            string result = CombatResolver.PlayTestCard(cost, type, damage);
+            string typeName = type == TargetType.SingleEnemy ? "单体" : "全体";
+            RunSession.RecordResolution("出牌结算", "测试卡（" + typeName + " " + cost + "费 " + damage + "伤）", result);
+            ShowPage("测试入口：战斗", BuildCombatDescription());
+        }
+
+        private void OnAddStatus(string name, System.Action action)
+        {
+            if (!CombatManager.CanPlayerAct) return;
+
+            action();
+            RunSession.RecordResolution("状态操作", "施加 " + name, BuildCombatDescription().Replace("\n", " / "));
+            ShowPage("测试入口：战斗", BuildCombatDescription());
+        }
+
         private void OnReturnToMenu()
         {
             RunSession.Reset();
@@ -420,8 +481,12 @@ namespace OneJourney.Core
         {
             if (!CombatManager.IsActive) return "战斗未激活";
 
-            string desc = "回合 " + CombatManager.TurnNumber + " | 能量 " + CombatManager.Energy + "/" + CombatManager.MaxEnergy + " | 阶段：" + CombatManager.CurrentTurnPhase;
-            desc += " | 可行动：" + CombatManager.CanPlayerAct;
+            string desc = "回合 " + CombatManager.TurnNumber
+                + " | 能量 " + CombatManager.Energy + "/" + CombatManager.MaxEnergy
+                + " | 士气 " + CombatManager.Morale + "/" + CombatStatus.MaxMorale
+                + " | 战斗：" + CombatManager.Phase
+                + " | 阶段：" + CombatManager.CurrentTurnPhase
+                + " | 可行动：" + CombatManager.CanPlayerAct;
 
             desc += "\n玩家队伍：";
             if (CombatManager.PlayerTeam != null)
@@ -429,7 +494,8 @@ namespace OneJourney.Core
                 foreach (var u in CombatManager.PlayerTeam)
                 {
                     string alive = u.IsAlive ? "" : " [阵亡]";
-                    desc += "\n  " + u.DisplayName + " HP:" + u.CurrentHp + "/" + u.MaxHp + " 护甲:" + u.Armor + alive;
+                    desc += "\n  " + u.DisplayName + " HP:" + u.CurrentHp + "/" + u.EffectiveMaxHp + " 护甲:" + u.Armor + "/" + u.EffectiveArmorCap
+                        + " 流血:" + u.Bleed + " 疾病:" + u.Disease + " 疲劳:" + u.Fatigue + alive;
                 }
             }
 
@@ -439,7 +505,8 @@ namespace OneJourney.Core
                 foreach (var e in CombatManager.EnemyTeam)
                 {
                     string alive = e.IsAlive ? "" : " [阵亡]";
-                    desc += "\n  " + e.DisplayName + " HP:" + e.CurrentHp + "/" + e.MaxHp + " 护甲:" + e.Armor + alive;
+                    desc += "\n  " + e.DisplayName + " HP:" + e.CurrentHp + "/" + e.EffectiveMaxHp + " 护甲:" + e.Armor + "/" + e.EffectiveArmorCap
+                        + " 流血:" + e.Bleed + " 疾病:" + e.Disease + " 疲劳:" + e.Fatigue + alive;
                 }
             }
 

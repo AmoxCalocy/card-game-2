@@ -76,9 +76,29 @@
   - 修复：能量 0 按钮置灰不位移；手牌满抽牌提示。
 - 验证：Test Runner 全绿；抽/弃/洗回/消耗/临时卡→消耗区→胜利清空→重进不含临时卡。
 
+## 2026-08-06 · A1-9 实现目标选择与伤害结算（用户已验证）
+- 完成：
+  - `CombatResolver.cs`（新）— 目标解析（6 种 TargetType）+ 伤害管线（护甲→生命→死亡→结束检查）+ `PlayTestCard`（无目标退款）。
+  - `CombatManager.cs` — 新增 `RefundEnergy`。
+  - `CombatResolverTests.cs`（新）— 18 个 EditMode 用例（含护甲恰好吸收/多1/批内击杀胜利）。
+  - `GameUi.cs` — 剑击/横扫出牌按钮；描述显示战斗 Phase；按钮改 5×2 网格字号 16。
+- 验证：Test Runner 全绿；Play 模式出牌/伤害/Victory 显示正常。
+
+## 2026-08-06 · A1-10 实现护甲、流血、士气、疾病与疲劳（用户已验证）
+- 完成：
+  - `CombatStatus.cs`（新）— 状态规则统一入口：上限/每层效果/施加叠加（钳上限、疾病钳血、疲劳钳甲）/移除/回合开始流血结算。
+  - `CombatUnit.cs` — 状态字段 + 有效上限属性 + `TakeTrueDamage`/`AddArmor`。
+  - `CombatManager.cs` — `Morale`/`MoraleUsedThisTurn` + 方法；回合开始双方流血结算。
+  - `CombatResolver.cs` — `ApplyDamage` 接入士气加成（首次 +2×层数，触发清空）。
+  - `GameUi.cs` — 状态显示 + 4 个状态按钮（流血/疾病/疲劳/士气），网格 5×3。
+  - `CombatStatusTests.cs`（新）— 16 个 EditMode 用例。
+- 修复：CombatUnit 重复字段；士气访问权限；测试断言未考虑疾病钳血。
+- 工程教训：recompile 假成功需 `AssetDatabase.Refresh(ForceUpdate)` + 验证 DLL 时间戳（已记入 Locus mistake-note）。
+- 验证：Test Runner 全绿（`CombatStatusTests` 16 用例）；Play 模式状态施加/衰减/钳制/士气均正常。
+
 ## 协作规则（用户 2026-08-05 确认）
 - 每步完成后：更新文档与开始下一步**分开**，均需用户明确告知后才实施。
 
 ## 进行中
-- 下一步：A1-9 实现目标选择与伤害结算（等待用户指示开始）。
+- 下一步：A1-11 实现敌人意图与敌方行动（等待用户指示开始）。
 

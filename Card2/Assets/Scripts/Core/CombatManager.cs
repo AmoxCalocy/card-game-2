@@ -41,6 +41,31 @@ namespace OneJourney.Core
         public static int Energy { get; private set; }
         public const int MaxEnergy = 3;
 
+        /// <summary>队伍士气 0-3 层（共享）：玩家回合首次造成普通伤害时每层 +2 伤害，触发后清空。</summary>
+        public static int Morale { get; private set; }
+
+        /// <summary>本回合是否已消耗士气。</summary>
+        public static bool MoraleUsedThisTurn { get; private set; }
+
+        /// <summary>获得士气（夹取 0-MaxMorale）。</summary>
+        public static int AddMorale(int stacks)
+        {
+            Morale = System.Math.Min(CombatStatus.MaxMorale, Morale + System.Math.Max(0, stacks));
+            return Morale;
+        }
+
+        /// <summary>清空士气（士气触发后调用）。</summary>
+        public static void ClearMorale()
+        {
+            Morale = 0;
+        }
+
+        /// <summary>标记本回合士气已消耗（首次伤害触发后调用）。</summary>
+        public static void MarkMoraleUsed()
+        {
+            MoraleUsedThisTurn = true;
+        }
+
         public static bool RetreatAllowed => false;
 
         public static bool IsActive => Phase >= CombatPhase.Initializing && Phase < CombatPhase.Ended;
@@ -89,7 +114,7 @@ namespace OneJourney.Core
 
         // ------- 回合流转 -------
 
-        /// <summary>玩家回合开始：抽 1 张牌，重置能量为 3。</summary>
+        /// <summary>玩家回合开始：抽 1 张牌，重置能量为 3，结算回合开始状态。</summary>
         public static void BeginPlayerTurn()
         {
             if (!IsActive || Phase != CombatPhase.Running) return;
@@ -97,9 +122,18 @@ namespace OneJourney.Core
 
             TurnNumber++;
             Energy = MaxEnergy;
+            MoraleUsedThisTurn = false;
             CurrentTurnPhase = TurnPhase.PlayerTurnStart;
 
             RunRecord.Log(RecordCategory.General, "第 " + TurnNumber + " 回合开始，能量重置为 " + MaxEnergy);
+
+            // 回合开始结算：玩家队伍流血
+            string bleedText = CombatStatus.TriggerTeamTurnStartBleed(PlayerTeam);
+            if (bleedText != null)
+            {
+                RunRecord.Log(RecordCategory.General, bleedText);
+                if (CheckEndConditionRaw() != null) return;
+            }
 
             Deck.DrawToHand(GameStartParameters.CardsPerTurn, GameStartParameters.MaxHandSize);
             CurrentTurnPhase = TurnPhase.PlayerTurn;
@@ -123,6 +157,13 @@ namespace OneJourney.Core
             CurrentTurnPhase = TurnPhase.EnemyTurn;
             RunRecord.Log(RecordCategory.General, "敌方回合开始");
 
+            // 敌方回合开始：敌人流血
+            string bleedText = CombatStatus.TriggerTeamTurnStartBleed(EnemyTeam);
+            if (bleedText != null)
+            {
+                RunRecord.Log(RecordCategory.General, bleedText);
+            }
+
             // 敌方行动 —— A1-11 实现，当前为空回合
 
             CurrentTurnPhase = TurnPhase.EnemyTurnEnd;
@@ -145,6 +186,13 @@ namespace OneJourney.Core
             if (!CanSpendEnergy(cost)) return false;
             Energy -= cost;
             return true;
+        }
+
+        /// <summary>退还能量（出牌失败时回滚，仅玩家行动阶段有效）。</summary>
+        public static void RefundEnergy(int cost)
+        {
+            if (!CanPlayerAct) return;
+            Energy = System.Math.Min(MaxEnergy, Energy + cost);
         }
 
         // ------- 胜负判定 -------
@@ -207,6 +255,8 @@ namespace OneJourney.Core
             CurrentTurnPhase = TurnPhase.None;
             TurnNumber = 0;
             Energy = 0;
+            Morale = 0;
+            MoraleUsedThisTurn = false;
             PlayerTeam = null;
             EnemyTeam = null;
             Deck = null;
