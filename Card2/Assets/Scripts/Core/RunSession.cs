@@ -118,25 +118,43 @@ namespace OneJourney.Core
             }
         }
 
+        private static int _testEncounterIndex;
+
         private static void InitTestCombat()
         {
             var player = CombatUnit.CreatePlayer(45, 6);
             var companion = CombatUnit.CreateCompanion("P01", "阿德里安(测试)", 42, 5);
-            var enemy1 = CombatUnit.CreateEnemy("EN01", "路匪", 28);
-            var enemy2 = CombatUnit.CreateEnemy("EN02", "野犬", 22);
+
+            var cfg = EncounterConfig.All[_testEncounterIndex % EncounterConfig.All.Length];
+            var enemies = new List<CombatUnit>(cfg.Enemies);
 
             var deck = new List<string>(GameStartParameters.StartingDeck);
             CombatManager.Init(
                 new[] { player, companion },
-                new[] { enemy1, enemy2 },
+                enemies,
                 deck);
 
             RecordResolution(
                 "战斗初始化",
-                "测试战斗已启动",
+                "测试战斗：" + cfg.Label,
                 CombatManager.IsActive
-                    ? "玩家队伍 " + CombatManager.PlayerTeam.Count + " 人 / 敌人 " + CombatManager.EnemyTeam.Count + " 个"
+                    ? "玩家队伍 2 人 / 敌人 " + enemies.Count + " 个"
                     : "初始化失败（检查日志）");
+        }
+
+        public static string CurrentEncounterLabel()
+        {
+            return EncounterConfig.All[_testEncounterIndex % EncounterConfig.All.Length].Label;
+        }
+
+        public static void NextEncounter()
+        {
+            _testEncounterIndex++;
+        }
+
+        public static void PrevEncounter()
+        {
+            _testEncounterIndex--;
         }
 
         public static void RecordResolution(string source, string description, string result)

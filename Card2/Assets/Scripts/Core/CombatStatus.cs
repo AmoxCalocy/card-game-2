@@ -14,6 +14,7 @@ namespace OneJourney.Core
         public const int MaxDisease = 3;
         public const int MaxFatigue = 3;
         public const int MaxArmor = 30;
+        public const int MaxPlunder = 3;
 
         // ---- 每层效果 ----
         public const int DiseaseMaxHpPenalty = 4;

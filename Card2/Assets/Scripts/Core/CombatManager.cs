@@ -66,6 +66,20 @@ namespace OneJourney.Core
             MoraleUsedThisTurn = true;
         }
 
+        /// <summary>玩家队伍掠夺层数 0-3（共享）：战斗胜利时每层失去 2 财富。</summary>
+        public static int Plunder { get; private set; }
+
+        public static int AddPlunder(int stacks)
+        {
+            Plunder = System.Math.Min(CombatStatus.MaxPlunder, Plunder + System.Math.Max(0, stacks));
+            return Plunder;
+        }
+
+        public static void ClearPlunder()
+        {
+            Plunder = 0;
+        }
+
         public static bool RetreatAllowed => false;
 
         public static bool IsActive => Phase >= CombatPhase.Initializing && Phase < CombatPhase.Ended;
@@ -131,12 +145,29 @@ namespace OneJourney.Core
             string bleedText = CombatStatus.TriggerTeamTurnStartBleed(PlayerTeam);
             if (bleedText != null)
             {
-                RunRecord.Log(RecordCategory.General, bleedText);
-                if (CheckEndConditionRaw() != null) return;
+                CheckEndConditionRaw();
             }
+
+            // 敌人抽取下一意图（玩家回合可见，供玩家规划）
+            RevealEnemyIntents();
 
             Deck.DrawToHand(GameStartParameters.CardsPerTurn, GameStartParameters.MaxHandSize);
             CurrentTurnPhase = TurnPhase.PlayerTurn;
+        }
+
+        /// <summary>为所有存活敌人按权重抽取下一意图。</summary>
+        public static void RevealEnemyIntents()
+        {
+            if (EnemyTeam == null) return;
+
+            foreach (var e in EnemyTeam)
+            {
+                if (!e.IsAlive) continue;
+                if (e is EnemyUnit eu)
+                {
+                    eu.RollIntent(RunSession.Random);
+                }
+            }
         }
 
         /// <summary>玩家结束回合：未用能量清零，进入敌方回合。</summary>
@@ -162,9 +193,11 @@ namespace OneJourney.Core
             if (bleedText != null)
             {
                 RunRecord.Log(RecordCategory.General, bleedText);
+                if (CheckEndConditionRaw() != null) return;
             }
 
-            // 敌方行动 —— A1-11 实现，当前为空回合
+            // 敌方行动：逐个执行已揭示的意图
+            ExecuteEnemyActions();
 
             CurrentTurnPhase = TurnPhase.EnemyTurnEnd;
             RunRecord.Log(RecordCategory.General, "敌方回合结束");
@@ -172,6 +205,136 @@ namespace OneJourney.Core
             if (CheckEndConditionRaw() != null) return;
 
             BeginPlayerTurn();
+        }
+
+        private static void ExecuteEnemyActions()
+        {
+            foreach (var e in EnemyTeam)
+            {
+                if (!e.IsAlive) continue;
+
+                if (!(e is EnemyUnit eu) || eu.CurrentIntent == null)
+                {
+                    RunRecord.Log(RecordCategory.EnemyIntent, e.DisplayName + " 没有可用意图，跳过行动");
+                    continue;
+                }
+
+                var intent = eu.CurrentIntent;
+
+                // 行动前重新校验目标（存活）
+                var targets = AliveUnits(PlayerTeam);
+                if (targets.Count == 0)
+                {
+                    RunRecord.Log(RecordCategory.EnemyIntent, e.DisplayName + " 无有效目标，采取默认行为（放弃行动）");
+                    continue;
+                }
+
+                string result;
+                switch (intent.Kind)
+                {
+                    case IntentKind.Attack:
+                    {
+                        var target = PickDefaultTarget(targets);
+                        result = CombatResolver.ApplyDamage(target, intent.Damage, fromPlayer: false);
+                        ApplySideEffects(target, intent);
+                        RunRecord.Log(RecordCategory.EnemyIntent, e.DisplayName + " 执行「" + intent.Name + "」→ " + result);
+                        break;
+                    }
+
+                    case IntentKind.AoeAttack:
+                    {
+                        foreach (var t in targets)
+                        {
+                            CombatResolver.ApplyDamage(t, intent.Damage, fromPlayer: false);
+                            ApplySideEffects(t, intent);
+                        }
+
+                        result = intent.Name + "：全体 " + intent.Damage + " 伤害";
+                        RunRecord.Log(RecordCategory.EnemyIntent, e.DisplayName + " 执行「" + intent.Name + "」→ " + result);
+                        break;
+                    }
+
+                    case IntentKind.Defense:
+                    {
+                        e.AddArmor(intent.ArmorGain);
+                        result = intent.Name + "：获得 " + intent.ArmorGain + " 护甲（当前 " + e.Armor + "）";
+                        RunRecord.Log(RecordCategory.EnemyIntent, e.DisplayName + " 执行「" + intent.Name + "」→ " + result);
+                        break;
+                    }
+
+                    case IntentKind.Plunder:
+                    {
+                        var target = PickDefaultTarget(targets);
+                        CombatResolver.ApplyDamage(target, intent.Damage, fromPlayer: false);
+                        ApplySideEffects(target, intent);
+                        if (intent.PlunderStacks > 0)
+                        {
+                            AddPlunder(intent.PlunderStacks);
+                        }
+
+                        result = intent.Name + "：" + intent.Damage + " 伤害 + 掠夺 " + intent.PlunderStacks + " 层（当前 " + Plunder + " 层）";
+                        RunRecord.Log(RecordCategory.EnemyIntent, e.DisplayName + " 执行「" + intent.Name + "」→ " + result);
+                        break;
+                    }
+
+                    default:
+                        RunRecord.Log(RecordCategory.EnemyIntent, e.DisplayName + " 未知意图类型，跳过");
+                        break;
+                }
+
+                if (CheckEndConditionRaw() != null) return;
+            }
+        }
+
+        private static void ApplySideEffects(CombatUnit target, EnemyIntentExec intent)
+        {
+            if (intent.BleedStacks > 0)
+            {
+                CombatStatus.AddBleed(target, intent.BleedStacks);
+            }
+
+            if (intent.DiseaseStacks > 0)
+            {
+                CombatStatus.AddDisease(target, intent.DiseaseStacks);
+            }
+        }
+
+        private static List<CombatUnit> AliveUnits(List<CombatUnit> units)
+        {
+            var result = new List<CombatUnit>();
+            foreach (var u in units)
+            {
+                if (u.IsAlive) result.Add(u);
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// 默认目标：当前生命百分比最低的存活单位；同值按主角、招募顺序判定（配置表 §2.1）。
+        /// </summary>
+        public static CombatUnit PickDefaultTarget(List<CombatUnit> candidates)
+        {
+            CombatUnit best = null;
+            float bestRatio = float.MaxValue;
+            int bestOrder = int.MaxValue;
+
+            foreach (var u in candidates)
+            {
+                if (!u.IsAlive) continue;
+
+                float ratio = (float)u.CurrentHp / u.EffectiveMaxHp;
+                int order = u.IsPlayerCharacter ? 0 : 1;
+                if (ratio < bestRatio - 0.0001f
+                    || (System.Math.Abs(ratio - bestRatio) <= 0.0001f && order < bestOrder))
+                {
+                    best = u;
+                    bestRatio = ratio;
+                    bestOrder = order;
+                }
+            }
+
+            return best;
         }
 
         // ------- 能量 -------
@@ -257,6 +420,7 @@ namespace OneJourney.Core
             Energy = 0;
             Morale = 0;
             MoraleUsedThisTurn = false;
+            Plunder = 0;
             PlayerTeam = null;
             EnemyTeam = null;
             Deck = null;

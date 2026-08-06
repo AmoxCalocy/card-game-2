@@ -6,7 +6,7 @@ namespace OneJourney.Core
     /// 战斗中的单个单位（主角/伙伴/敌人）。
     /// 战斗结束后，仅 CurrentHp 等长期值带回战役状态。
     /// </summary>
-    public sealed class CombatUnit
+    public class CombatUnit
     {
         public string Id;
         public string DisplayName;
@@ -89,7 +89,7 @@ namespace OneJourney.Core
             CurrentHp = System.Math.Min(CurrentHp + amount, EffectiveMaxHp);
         }
 
-        public CombatUnit Clone()
+        public virtual CombatUnit Clone()
         {
             return new CombatUnit(Id, DisplayName, MaxHp, CommandDamage, IsPlayerCharacter)
             {

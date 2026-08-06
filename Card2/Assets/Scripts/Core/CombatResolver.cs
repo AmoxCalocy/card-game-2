@@ -55,9 +55,10 @@ namespace OneJourney.Core
 
         /// <summary>
         /// 对单个目标结算一次普通伤害。
+        /// fromPlayer=true 时接入士气加成（玩家回合首次伤害）。
         /// 返回可读结算文本（含护甲吸收与生命变化）。
         /// </summary>
-        public static string ApplyDamage(CombatUnit target, int amount)
+        public static string ApplyDamage(CombatUnit target, int amount, bool fromPlayer = true)
         {
             if (target == null || !target.IsAlive)
             {
@@ -70,7 +71,7 @@ namespace OneJourney.Core
             }
 
             // 士气：玩家回合首次造成普通伤害时，每层 +2 伤害，触发后清空（仅玩家来源伤害）
-            if (!CombatManager.MoraleUsedThisTurn && CombatManager.Morale > 0)
+            if (fromPlayer && !CombatManager.MoraleUsedThisTurn && CombatManager.Morale > 0)
             {
                 int bonus = CombatManager.Morale * CombatStatus.MoraleBonusPerStack;
                 amount += bonus;

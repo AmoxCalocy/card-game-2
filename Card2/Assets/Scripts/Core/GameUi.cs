@@ -48,6 +48,8 @@ namespace OneJourney.Core
         [SerializeField] private Button _diseaseButton;
         [SerializeField] private Button _fatigueButton;
         [SerializeField] private Button _moraleButton;
+        [SerializeField] private Button _prevEncounterButton;
+        [SerializeField] private Button _nextEncounterButton;
 
         private void Awake()
         {
@@ -174,6 +176,16 @@ namespace OneJourney.Core
                 _moraleButton.onClick.AddListener(() => OnAddStatus("士气", () => CombatManager.AddMorale(2)));
             }
 
+            if (_prevEncounterButton != null)
+            {
+                _prevEncounterButton.onClick.AddListener(OnPrevEncounter);
+            }
+
+            if (_nextEncounterButton != null)
+            {
+                _nextEncounterButton.onClick.AddListener(OnNextEncounter);
+            }
+
             int testCount = Math.Min(_testEntryButtons.Length, _testEntryStates.Length);
             for (int i = 0; i < testCount; i++)
             {
@@ -230,6 +242,9 @@ namespace OneJourney.Core
             if (_diseaseButton != null) _diseaseButton.gameObject.SetActive(isCombat && CombatManager.CanPlayerAct);
             if (_fatigueButton != null) _fatigueButton.gameObject.SetActive(isCombat && CombatManager.CanPlayerAct);
             if (_moraleButton != null) _moraleButton.gameObject.SetActive(isCombat && CombatManager.CanPlayerAct);
+            bool canSwitchEncounter = RunSession.CurrentState == GameState.Combat;
+            if (_prevEncounterButton != null) _prevEncounterButton.gameObject.SetActive(canSwitchEncounter);
+            if (_nextEncounterButton != null) _nextEncounterButton.gameObject.SetActive(canSwitchEncounter);
 
             Refresh();
         }
@@ -257,9 +272,10 @@ namespace OneJourney.Core
         {
             RunSession.EnterTestPage(page);
             string desc;
-            if (page == GameState.Combat && CombatManager.IsActive)
+            if (page == GameState.Combat)
             {
-                desc = BuildCombatDescription();
+                desc = "遭遇：" + RunSession.CurrentEncounterLabel() + "\n";
+                desc += CombatManager.IsActive ? BuildCombatDescription() : "点击「◀ 上一组 / 下一组 ▶」切换敌人，返回主菜单再次进入测试。";
             }
             else
             {
@@ -387,6 +403,35 @@ namespace OneJourney.Core
             ShowPage("测试入口：战斗", BuildCombatDescription());
         }
 
+        private void OnPrevEncounter()
+        {
+            RunSession.PrevEncounter();
+            if (CombatManager.IsActive) RelaunchCombat();
+            else RefreshCombatPage();
+        }
+
+        private void OnNextEncounter()
+        {
+            RunSession.NextEncounter();
+            if (CombatManager.IsActive) RelaunchCombat();
+            else RefreshCombatPage();
+        }
+
+        private void RefreshCombatPage()
+        {
+            string desc = "遭遇：" + RunSession.CurrentEncounterLabel() + "\n";
+            desc += "点击「◀ 上一组 / 下一组 ▶」切换敌人，返回主菜单再次进入测试。";
+            ShowPage("测试入口：战斗", desc);
+        }
+
+        private void RelaunchCombat()
+        {
+            CombatManager.End();
+            RunSession.EnterTestPage(GameState.Combat);
+            string desc = "遭遇：" + RunSession.CurrentEncounterLabel() + "\n" + BuildCombatDescription();
+            ShowPage("测试入口：战斗", desc);
+        }
+
         private void OnReturnToMenu()
         {
             RunSession.Reset();
@@ -505,8 +550,19 @@ namespace OneJourney.Core
                 foreach (var e in CombatManager.EnemyTeam)
                 {
                     string alive = e.IsAlive ? "" : " [阵亡]";
+                    string intentText = "";
+                    if (e.IsAlive && e is EnemyUnit eu && eu.CurrentIntent != null)
+                    {
+                        intentText = " | 意图：" + eu.CurrentIntent.Describe();
+                    }
+
                     desc += "\n  " + e.DisplayName + " HP:" + e.CurrentHp + "/" + e.EffectiveMaxHp + " 护甲:" + e.Armor + "/" + e.EffectiveArmorCap
-                        + " 流血:" + e.Bleed + " 疾病:" + e.Disease + " 疲劳:" + e.Fatigue + alive;
+                        + " 流血:" + e.Bleed + " 疾病:" + e.Disease + " 疲劳:" + e.Fatigue + alive + intentText;
+                }
+
+                if (CombatManager.Plunder > 0)
+                {
+                    desc += "\n掠夺：" + CombatManager.Plunder + " 层（胜利时每层 -2 财富）";
                 }
             }
 

@@ -96,9 +96,29 @@
 - 工程教训：recompile 假成功需 `AssetDatabase.Refresh(ForceUpdate)` + 验证 DLL 时间戳（已记入 Locus mistake-note）。
 - 验证：Test Runner 全绿（`CombatStatusTests` 16 用例）；Play 模式状态施加/衰减/钳制/士气均正常。
 
+## 2026-08-06 · A1-11 实现敌人意图与敌方行动（用户已验证）
+- 完成：
+  - `EnemyUnit.cs`（新）— `EnemyIntentExec`（Attack/AoeAttack/Defense/Plunder）+ 加权抽取 + 路匪/野犬工厂。
+  - `CombatManager.cs` — 意图揭示/四种执行/默认目标最低 HP%/掠夺层/胜利掠夺结算。
+  - `CombatResolver.cs` — `fromPlayer` 参数隔离敌方伤害与士气。
+  - `GameUi.cs` — 敌人意图显示 + 掠夺层数。
+  - `EnemyIntentTests.cs`（新）— 12 个 EditMode 用例。
+- 修复：测试中非目标敌人干扰；并行会话多次回滚 sealed/virtual/Clone。
+- 验证：Test Runner 全绿；Play 模式意图可见、执行匹配、同种子复现。
+
+## 2026-08-06 · A1-12 制作 10 种 MVP 敌人与基础遭遇表（用户已验证）
+- 完成：
+  - `EnemyUnit.cs` — 补齐 EN03-EN10 共 10 种敌人工厂；`EnemyIntentExec` 加 BleedStacks/DiseaseStacks。
+  - `CombatManager.cs` — `ApplySideEffects`（施加流血/疾病）；`ExecuteEnemyActions` 接入。
+  - `EncounterConfig.cs`（新）— 9 组遭遇表（草原/密林普通+精英+首领）。
+  - `RunSession.cs` — 遭遇翻页选择 + `NextEncounter`/`PrevEncounter`。
+  - `GameUi.cs` — 「◀ 上一组」「下一组 ▶」按钮 + 当前遭遇名。
+- 修复：翻页按钮 visibility 条件（测试页状态而非战斗活跃）；毒丝蛛流血1层确认生效（新回合开始时结算）。
+- 验证：Play 模式翻页切换 9 组均正常；菌疫兽疾病 -4 上限；毒丝蛛流血生效。
+
 ## 协作规则（用户 2026-08-05 确认）
 - 每步完成后：更新文档与开始下一步**分开**，均需用户明确告知后才实施。
 
 ## 进行中
-- 下一步：A1-11 实现敌人意图与敌方行动（等待用户指示开始）。
+- 下一步：A1-13 完成 40 张基础卡的第一版（等待用户指示开始）。
 
