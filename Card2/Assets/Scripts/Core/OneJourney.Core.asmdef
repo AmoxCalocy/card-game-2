@@ -1,7 +1,9 @@
 {
     "name": "OneJourney.Core",
     "rootNamespace": "OneJourney.Core",
-    "references": [],
+    "references": [
+        "Unity.TextMeshPro"
+    ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,

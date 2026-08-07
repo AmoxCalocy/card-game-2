@@ -54,6 +54,9 @@ namespace OneJourney.Core
         [Header("手牌出牌（A1-13）")]
         [SerializeField] private Transform _handCardContainer;
 
+        [Header("战斗界面（A1-14）")]
+        [SerializeField] private BattleView _battleView;
+
         private void Awake()
         {
             BindButtons();
@@ -241,6 +244,18 @@ namespace OneJourney.Core
             _pagePanel.SetActive(true);
 
             bool isCombat = RunSession.CurrentState == GameState.Combat && CombatManager.IsActive;
+
+            // A1-14：战斗中优先显示 BattleView，隐藏旧版 TestPage
+            if (isCombat && _battleView != null)
+            {
+                _battleView.Show();
+                _battleView.Refresh();
+                if (_pagePanel != null) _pagePanel.SetActive(false);
+            }
+            else if (_battleView != null)
+            {
+                _battleView.Hide();
+            }
             if (_combatVictoryButton != null) _combatVictoryButton.gameObject.SetActive(isCombat);
             if (_combatDefeatButton != null) _combatDefeatButton.gameObject.SetActive(isCombat);
             if (_endTurnButton != null) _endTurnButton.gameObject.SetActive(isCombat && CombatManager.CanPlayerAct);
@@ -464,6 +479,11 @@ namespace OneJourney.Core
 
         private void OnReturnToMenu()
         {
+            ReturnToMenu();
+        }
+
+        public void ReturnToMenu()
+        {
             RunSession.Reset();
             ShowMenu();
         }
@@ -482,6 +502,12 @@ namespace OneJourney.Core
             if (_hudText == null)
             {
                 return;
+            }
+
+            // A1-14：战斗中同步刷新 BattleView
+            if (_battleView != null && CombatManager.IsActive)
+            {
+                _battleView.Refresh();
             }
 
             var last = RunSession.LastResolution;

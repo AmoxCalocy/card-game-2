@@ -224,6 +224,14 @@ namespace OneJourney.Core
         private static string ApplyEffect(CardEffect eff, TargetType cardTargetType,
             System.Collections.Generic.List<CombatUnit> targets, ref CombatUnit selectedTarget, ref bool exhausted)
         {
+            // 单体效果优先使用用户选中的目标
+            bool isSingle = cardTargetType == TargetType.SingleEnemy
+                || cardTargetType == TargetType.SingleAlly
+                || cardTargetType == TargetType.Self;
+            CombatUnit singleTarget = isSingle && selectedTarget != null && selectedTarget.IsAlive
+                ? selectedTarget
+                : (targets.Count > 0 ? targets[0] : null);
+
             // 条件检查
             if (eff.Condition != EffectCondition.None)
             {
@@ -249,19 +257,31 @@ namespace OneJourney.Core
             {
                 case CardEffectType.Damage:
                 {
-                    bool isMultiTarget = cardTargetType == TargetType.AllEnemies;
-                    int count = isMultiTarget ? targets.Count : 1;
-                    for (int i = 0; i < count && i < targets.Count; i++)
+                    if (cardTargetType == TargetType.AllEnemies || cardTargetType == TargetType.AllAllies)
                     {
-                        if (!targets[i].IsAlive) continue;
-                        CombatResolver.ApplyDamage(targets[i], eff.P0);
-                        if (!CombatManager.IsActive) return null;
+                        foreach (var t in targets)
+                        {
+                            if (!t.IsAlive) continue;
+                            CombatResolver.ApplyDamage(t, eff.P0);
+                            if (!CombatManager.IsActive) return null;
+                        }
+                        return "造成 " + eff.P0 + " 伤害（全体）";
                     }
-                    return "造成 " + eff.P0 + " 伤害";
+                    else if (singleTarget != null)
+                    {
+                        CombatResolver.ApplyDamage(singleTarget, eff.P0);
+                        return "造成 " + eff.P0 + " 伤害 → " + singleTarget.DisplayName;
+                    }
+                    return null;
                 }
 
                 case CardEffectType.GainArmor:
                 {
+                    if (isSingle && singleTarget != null)
+                    {
+                        singleTarget.AddArmor(eff.P0);
+                        return singleTarget.DisplayName + " 获得 " + eff.P0 + " 护甲";
+                    }
                     foreach (var t in targets)
                     {
                         if (!t.IsAlive) continue;
@@ -272,6 +292,11 @@ namespace OneJourney.Core
 
                 case CardEffectType.Heal:
                 {
+                    if (isSingle && singleTarget != null)
+                    {
+                        singleTarget.Heal(eff.P0);
+                        return singleTarget.DisplayName + " 恢复 " + eff.P0 + " 生命";
+                    }
                     foreach (var t in targets)
                     {
                         if (!t.IsAlive) continue;
@@ -288,6 +313,11 @@ namespace OneJourney.Core
 
                 case CardEffectType.ApplyBleed:
                 {
+                    if (isSingle && singleTarget != null)
+                    {
+                        CombatStatus.AddBleed(singleTarget, eff.P0);
+                        return singleTarget.DisplayName + " 获得 " + eff.P0 + " 层流血";
+                    }
                     foreach (var t in targets)
                     {
                         if (!t.IsAlive) continue;
@@ -298,6 +328,11 @@ namespace OneJourney.Core
 
                 case CardEffectType.ApplyDisease:
                 {
+                    if (isSingle && singleTarget != null)
+                    {
+                        CombatStatus.AddDisease(singleTarget, eff.P0);
+                        return singleTarget.DisplayName + " 获得 " + eff.P0 + " 层疾病";
+                    }
                     foreach (var t in targets)
                     {
                         if (!t.IsAlive) continue;
@@ -308,6 +343,11 @@ namespace OneJourney.Core
 
                 case CardEffectType.ApplyFatigue:
                 {
+                    if (isSingle && singleTarget != null)
+                    {
+                        CombatStatus.AddFatigue(singleTarget, eff.P0);
+                        return singleTarget.DisplayName + " 获得 " + eff.P0 + " 层疲劳";
+                    }
                     foreach (var t in targets)
                     {
                         if (!t.IsAlive) continue;
@@ -325,6 +365,12 @@ namespace OneJourney.Core
                 case CardEffectType.RemoveBleed:
                 {
                     int stacks = eff.P0;
+                    if (isSingle && singleTarget != null)
+                    {
+                        if (stacks == 0) CombatStatus.RemoveAllBleed(singleTarget);
+                        else CombatStatus.RemoveBleed(singleTarget, stacks);
+                        return stacks == 0 ? "移除全部流血" : "移除 " + stacks + " 层流血";
+                    }
                     foreach (var t in targets)
                     {
                         if (!t.IsAlive) continue;
@@ -336,6 +382,12 @@ namespace OneJourney.Core
 
                 case CardEffectType.RemoveDisease:
                 {
+                    if (isSingle && singleTarget != null)
+                    {
+                        singleTarget.Disease = System.Math.Max(0, singleTarget.Disease - eff.P0);
+                        singleTarget.CurrentHp = System.Math.Min(singleTarget.CurrentHp, singleTarget.EffectiveMaxHp);
+                        return singleTarget.DisplayName + " 移除 " + eff.P0 + " 层疾病";
+                    }
                     foreach (var t in targets)
                     {
                         if (!t.IsAlive) continue;
@@ -347,6 +399,11 @@ namespace OneJourney.Core
 
                 case CardEffectType.RemoveFatigue:
                 {
+                    if (isSingle && singleTarget != null)
+                    {
+                        singleTarget.Fatigue = System.Math.Max(0, singleTarget.Fatigue - eff.P0);
+                        return singleTarget.DisplayName + " 移除 " + eff.P0 + " 层疲劳";
+                    }
                     foreach (var t in targets)
                     {
                         if (!t.IsAlive) continue;
@@ -357,6 +414,11 @@ namespace OneJourney.Core
 
                 case CardEffectType.RemoveArmor:
                 {
+                    if (isSingle && singleTarget != null)
+                    {
+                        singleTarget.Armor = System.Math.Max(0, singleTarget.Armor - eff.P0);
+                        return singleTarget.DisplayName + " 护甲 -" + eff.P0;
+                    }
                     foreach (var t in targets)
                     {
                         if (!t.IsAlive) continue;
@@ -367,14 +429,21 @@ namespace OneJourney.Core
 
                 case CardEffectType.ReduceIntent:
                 {
+                    if (isSingle && singleTarget != null && singleTarget is EnemyUnit eu && eu.CurrentIntent != null)
+                    {
+                        eu.CurrentIntent.Damage = System.Math.Max(0, eu.CurrentIntent.Damage - eff.P0);
+                        eu.CurrentIntent.ArmorGain = System.Math.Max(0, eu.CurrentIntent.ArmorGain - eff.P0);
+                        eu.CurrentIntent.PlunderStacks = System.Math.Max(0, eu.CurrentIntent.PlunderStacks - eff.P0);
+                        return "意图效果 -" + eff.P0;
+                    }
                     foreach (var t in targets)
                     {
                         if (!t.IsAlive) continue;
-                        if (t is EnemyUnit eu && eu.CurrentIntent != null)
+                        if (t is EnemyUnit eu2 && eu2.CurrentIntent != null)
                         {
-                            eu.CurrentIntent.Damage = System.Math.Max(0, eu.CurrentIntent.Damage - eff.P0);
-                            eu.CurrentIntent.ArmorGain = System.Math.Max(0, eu.CurrentIntent.ArmorGain - eff.P0);
-                            eu.CurrentIntent.PlunderStacks = System.Math.Max(0, eu.CurrentIntent.PlunderStacks - eff.P0);
+                            eu2.CurrentIntent.Damage = System.Math.Max(0, eu2.CurrentIntent.Damage - eff.P0);
+                            eu2.CurrentIntent.ArmorGain = System.Math.Max(0, eu2.CurrentIntent.ArmorGain - eff.P0);
+                            eu2.CurrentIntent.PlunderStacks = System.Math.Max(0, eu2.CurrentIntent.PlunderStacks - eff.P0);
                         }
                     }
                     return "意图效果 -" + eff.P0;
