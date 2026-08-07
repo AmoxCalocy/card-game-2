@@ -29,6 +29,9 @@ namespace OneJourney.Core
         /// <summary>疲劳 0-3 层（战役长期）：每层护甲上限 -5、指令伤害 -1。</summary>
         public int Fatigue;
 
+        /// <summary>集火标记额外伤害（C25 集火指令，本回合内有效，回合结束时清零）。</summary>
+        public int FocusFireExtra;
+
         public CombatUnit(string id, string displayName, int maxHp, int commandDamage = 0, bool isPlayerCharacter = false)
         {
             Id = id;
@@ -97,7 +100,8 @@ namespace OneJourney.Core
                 Armor = Armor,
                 Bleed = Bleed,
                 Disease = Disease,
-                Fatigue = Fatigue
+                Fatigue = Fatigue,
+                FocusFireExtra = FocusFireExtra
             };
         }
 

@@ -22,6 +22,7 @@ namespace OneJourney.Core
         public int BleedStacks;    // 附带流血层数
         public int DiseaseStacks;  // 附带疾病层数
         public int Weight = 1;
+        public bool TargetsPlayer; // C30 诱饵：意图被改为攻击主角
 
         public EnemyIntentExec(string name, IntentKind kind, int weight)
         {

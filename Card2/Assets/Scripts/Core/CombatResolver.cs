@@ -80,6 +80,13 @@ namespace OneJourney.Core
                 RunRecord.Log(RecordCategory.General, "士气触发，伤害 +" + bonus);
             }
 
+            // 集火标记（仅玩家来源伤害）
+            if (fromPlayer && target.FocusFireExtra > 0)
+            {
+                amount += target.FocusFireExtra;
+                RunRecord.Log(RecordCategory.General, "集火触发，伤害 +" + target.FocusFireExtra);
+            }
+
             int beforeHp = target.CurrentHp;
             int beforeArmor = target.Armor;
             int total = target.TakeDamage(amount);
@@ -103,6 +110,7 @@ namespace OneJourney.Core
         }
 
         /// <summary>打出测试卡：费用校验 → 目标解析 → 伤害结算 → 结束检查。</summary>
+        [System.Obsolete("请使用 PlayCard(int handIndex, CombatUnit selectedTarget) 代替。")]
         public static string PlayTestCard(int cost, TargetType type, int damage)
         {
             if (!CombatManager.CanPlayerAct)
@@ -149,6 +157,418 @@ namespace OneJourney.Core
 
             RunRecord.Log(RecordCategory.General, "测试卡结算：" + totalDealt + " 个目标，伤害 " + damage);
             return string.Join("\n", texts);
+        }
+
+        /// <summary>
+        /// 从手牌打出一张卡（实施计划 A1-13）。
+        /// 流程：费用校验 → 目标解析 → 移除手牌 → 逐个效果结算 → 弃牌/消耗 → 结束检查。
+        /// </summary>
+        /// <param name="handIndex">手牌索引（0-based），必须有效。</param>
+        /// <param name="selectedTarget">单体目标（可选，null 则自动选第一个合法目标）。</param>
+        public static string PlayCard(int handIndex, CombatUnit selectedTarget = null)
+        {
+            if (!CombatManager.CanPlayerAct) return "当前不能出牌";
+            if (CombatManager.Deck == null || handIndex < 0 || handIndex >= CombatManager.Deck.HandSize)
+                return "手牌索引无效";
+
+            string cardId = CombatManager.Deck.Hand[handIndex];
+            var card = CardCatalog.Find(cardId);
+            if (card == null) return "找不到卡牌定义：" + cardId;
+
+            // 费用计算（含减费）
+            int actualCost = card.Cost;
+            if (CombatManager.CostReductionRemaining > 0)
+            {
+                int reduction = System.Math.Min(actualCost, CombatManager.CostReductionRemaining);
+                actualCost -= reduction;
+                CombatManager.CostReductionRemaining -= reduction;
+            }
+
+            if (!CombatManager.SpendEnergy(actualCost))
+                return "能量不足（需要 " + actualCost + "，当前 " + CombatManager.Energy + "）";
+
+            // 目标解析
+            bool needsTarget = card.TargetType != TargetType.None;
+            var targets = ResolveTargets(card.TargetType, out string issue);
+            if (needsTarget && issue != null)
+            {
+                CombatManager.RefundEnergy(actualCost);
+                return "无合法目标：" + issue;
+            }
+
+            // 从手牌移除（暂存，结算后加入对应区域）
+            CombatManager.Deck.Hand.RemoveAt(handIndex);
+            bool exhausted = false;
+
+            // 逐个效果结算
+            var texts = new System.Collections.Generic.List<string>();
+            texts.Add(card.DisplayName + "（" + actualCost + "费）");
+
+            foreach (var eff in card.Effects)
+            {
+                string result = ApplyEffect(eff, card.TargetType, targets, ref selectedTarget, ref exhausted);
+                if (!string.IsNullOrEmpty(result)) texts.Add(result);
+                if (!CombatManager.IsActive) break; // 战斗结束则中断
+            }
+
+            // 卡牌归位
+            if (exhausted)
+                CombatManager.Deck.ExhaustZone.Add(cardId);
+            else
+                CombatManager.Deck.DiscardPile.Add(cardId);
+
+            RunRecord.Log(RecordCategory.General, "打出 " + card.DisplayName + "（" + cardId + "）");
+            return string.Join("\n", texts);
+        }
+
+        private static string ApplyEffect(CardEffect eff, TargetType cardTargetType,
+            System.Collections.Generic.List<CombatUnit> targets, ref CombatUnit selectedTarget, ref bool exhausted)
+        {
+            // 条件检查
+            if (eff.Condition != EffectCondition.None)
+            {
+                bool met = false;
+                if (targets.Count > 0)
+                {
+                    var checkUnit = targets[0];
+                    switch (eff.Condition)
+                    {
+                        case EffectCondition.TargetBleedGE2:
+                            met = checkUnit.Bleed >= 2;
+                            break;
+                        case EffectCondition.SelfArmorGE10:
+                            var self = CombatManager.PlayerCharacter();
+                            met = self != null && self.Armor >= 10;
+                            break;
+                    }
+                }
+                if (!met) return null; // 条件不满足，跳过
+            }
+
+            switch (eff.Type)
+            {
+                case CardEffectType.Damage:
+                {
+                    bool isMultiTarget = cardTargetType == TargetType.AllEnemies;
+                    int count = isMultiTarget ? targets.Count : 1;
+                    for (int i = 0; i < count && i < targets.Count; i++)
+                    {
+                        if (!targets[i].IsAlive) continue;
+                        CombatResolver.ApplyDamage(targets[i], eff.P0);
+                        if (!CombatManager.IsActive) return null;
+                    }
+                    return "造成 " + eff.P0 + " 伤害";
+                }
+
+                case CardEffectType.GainArmor:
+                {
+                    foreach (var t in targets)
+                    {
+                        if (!t.IsAlive) continue;
+                        t.AddArmor(eff.P0);
+                    }
+                    return "获得 " + eff.P0 + " 护甲";
+                }
+
+                case CardEffectType.Heal:
+                {
+                    foreach (var t in targets)
+                    {
+                        if (!t.IsAlive) continue;
+                        t.Heal(eff.P0);
+                    }
+                    return "恢复 " + eff.P0 + " 生命";
+                }
+
+                case CardEffectType.Draw:
+                {
+                    CombatManager.Deck.DrawToHand(eff.P0, GameStartParameters.MaxHandSize);
+                    return "抽 " + eff.P0 + " 张";
+                }
+
+                case CardEffectType.ApplyBleed:
+                {
+                    foreach (var t in targets)
+                    {
+                        if (!t.IsAlive) continue;
+                        CombatStatus.AddBleed(t, eff.P0);
+                    }
+                    return "施加 " + eff.P0 + " 层流血";
+                }
+
+                case CardEffectType.ApplyDisease:
+                {
+                    foreach (var t in targets)
+                    {
+                        if (!t.IsAlive) continue;
+                        CombatStatus.AddDisease(t, eff.P0);
+                    }
+                    return "施加 " + eff.P0 + " 层疾病";
+                }
+
+                case CardEffectType.ApplyFatigue:
+                {
+                    foreach (var t in targets)
+                    {
+                        if (!t.IsAlive) continue;
+                        CombatStatus.AddFatigue(t, eff.P0);
+                    }
+                    return "施加 " + eff.P0 + " 层疲劳";
+                }
+
+                case CardEffectType.AddMorale:
+                {
+                    CombatManager.AddMorale(eff.P0);
+                    return "士气 +" + eff.P0;
+                }
+
+                case CardEffectType.RemoveBleed:
+                {
+                    int stacks = eff.P0;
+                    foreach (var t in targets)
+                    {
+                        if (!t.IsAlive) continue;
+                        if (stacks == 0) CombatStatus.RemoveAllBleed(t);
+                        else CombatStatus.RemoveBleed(t, stacks);
+                    }
+                    return stacks == 0 ? "移除全部流血" : "移除 " + stacks + " 层流血";
+                }
+
+                case CardEffectType.RemoveDisease:
+                {
+                    foreach (var t in targets)
+                    {
+                        if (!t.IsAlive) continue;
+                        t.Disease = System.Math.Max(0, t.Disease - eff.P0);
+                        t.CurrentHp = System.Math.Min(t.CurrentHp, t.EffectiveMaxHp);
+                    }
+                    return "移除 " + eff.P0 + " 层疾病";
+                }
+
+                case CardEffectType.RemoveFatigue:
+                {
+                    foreach (var t in targets)
+                    {
+                        if (!t.IsAlive) continue;
+                        t.Fatigue = System.Math.Max(0, t.Fatigue - eff.P0);
+                    }
+                    return "移除 " + eff.P0 + " 层疲劳";
+                }
+
+                case CardEffectType.RemoveArmor:
+                {
+                    foreach (var t in targets)
+                    {
+                        if (!t.IsAlive) continue;
+                        t.Armor = System.Math.Max(0, t.Armor - eff.P0);
+                    }
+                    return "移除 " + eff.P0 + " 护甲";
+                }
+
+                case CardEffectType.ReduceIntent:
+                {
+                    foreach (var t in targets)
+                    {
+                        if (!t.IsAlive) continue;
+                        if (t is EnemyUnit eu && eu.CurrentIntent != null)
+                        {
+                            eu.CurrentIntent.Damage = System.Math.Max(0, eu.CurrentIntent.Damage - eff.P0);
+                            eu.CurrentIntent.ArmorGain = System.Math.Max(0, eu.CurrentIntent.ArmorGain - eff.P0);
+                            eu.CurrentIntent.PlunderStacks = System.Math.Max(0, eu.CurrentIntent.PlunderStacks - eff.P0);
+                        }
+                    }
+                    return "意图效果 -" + eff.P0;
+                }
+
+                case CardEffectType.SelfArmor:
+                {
+                    var self = CombatManager.PlayerCharacter();
+                    if (self != null) self.AddArmor(eff.P0);
+                    return "主角获得 " + eff.P0 + " 护甲";
+                }
+
+                case CardEffectType.PartnerArmor:
+                {
+                    int count = 0;
+                    if (CombatManager.PlayerTeam != null)
+                    {
+                        foreach (var u in CombatManager.PlayerTeam)
+                        {
+                            if (!u.IsAlive || u.IsPlayerCharacter) continue;
+                            u.AddArmor(eff.P0);
+                            count++;
+                        }
+                    }
+                    return count > 0 ? count + " 名伙伴各获得 " + eff.P0 + " 护甲" : null;
+                }
+
+                case CardEffectType.BonusDrawNextTurn:
+                {
+                    CombatManager.PendingBonusDraw += eff.P0;
+                    return "下回合额外抽 " + eff.P0 + " 张";
+                }
+
+                case CardEffectType.CostReduction:
+                {
+                    CombatManager.CostReductionRemaining += eff.P0;
+                    return "下张牌费用 -" + eff.P0;
+                }
+
+                case CardEffectType.Exhaust:
+                {
+                    exhausted = true;
+                    return null; // 标记由外层处理
+                }
+
+                case CardEffectType.SupplyFood:
+                {
+                    // MVP：标记供战斗胜利后结算，暂记录日志
+                    RunRecord.Log(RecordCategory.General, "补给标记：胜利后额外获得 " + eff.P0 + " 粮食");
+                    return "胜利后 +" + eff.P0 + " 粮食";
+                }
+
+                case CardEffectType.FocusFire:
+                {
+                    foreach (var t in targets)
+                    {
+                        if (!t.IsAlive) continue;
+                        t.FocusFireExtra = eff.P0;
+                    }
+                    return "集火标记 +" + eff.P0;
+                }
+
+                case CardEffectType.Taunt:
+                {
+                    foreach (var t in targets)
+                    {
+                        if (!t.IsAlive) continue;
+                        if (t is EnemyUnit eu && eu.CurrentIntent != null)
+                        {
+                            eu.CurrentIntent.TargetsPlayer = true;
+                            eu.CurrentIntent.Damage = System.Math.Max(0, eu.CurrentIntent.Damage - eff.P0);
+                            eu.CurrentIntent.PlunderStacks = System.Math.Max(0, eu.CurrentIntent.PlunderStacks - eff.P0);
+                        }
+                    }
+                    return "诱饵生效，意图改向主角，效果 -" + eff.P0;
+                }
+
+                case CardEffectType.RemoveCapture:
+                {
+                    foreach (var t in targets)
+                    {
+                        if (!t.IsAlive) continue;
+                        // 围捕暂未实现独立字段，记录日志供后续
+                        RunRecord.Log(RecordCategory.General, t.DisplayName + " 移除围捕 " + eff.P0 + " 层");
+                    }
+                    return "移除围捕";
+                }
+
+                case CardEffectType.RemoveInjury:
+                {
+                    foreach (var t in targets)
+                    {
+                        if (!t.IsAlive) continue;
+                        // 受伤暂未实现独立字段，记录日志
+                        RunRecord.Log(RecordCategory.General, t.DisplayName + " 移除受伤");
+                    }
+                    return "移除受伤";
+                }
+
+                case CardEffectType.PartnerDamage:
+                {
+                    if (CombatManager.PlayerTeam == null || targets.Count == 0) return null;
+                    var enemy = targets[0];
+                    if (!enemy.IsAlive) return null;
+
+                    // 选第一个存活非主角伙伴
+                    CombatUnit partner = null;
+                    foreach (var u in CombatManager.PlayerTeam)
+                    {
+                        if (!u.IsAlive || u.IsPlayerCharacter) continue;
+                        partner = u;
+                        break;
+                    }
+
+                    if (partner == null) return "没有可用的伙伴";
+                    int dmg = partner.EffectiveCommandDamage + eff.P0;
+                    CombatResolver.ApplyDamage(enemy, dmg);
+                    return partner.DisplayName + " 造成 " + dmg + " 伤害";
+                }
+
+                case CardEffectType.AllPartnerDamage:
+                {
+                    if (CombatManager.PlayerTeam == null || targets.Count == 0) return null;
+                    var enemy = targets[0];
+                    if (!enemy.IsAlive) return null;
+
+                    int hitCount = 0;
+                    foreach (var u in CombatManager.PlayerTeam)
+                    {
+                        if (!u.IsAlive || u.IsPlayerCharacter) continue;
+                        int dmg = u.EffectiveCommandDamage + eff.P0;
+                        CombatResolver.ApplyDamage(enemy, dmg);
+                        hitCount++;
+                        if (!enemy.IsAlive || !CombatManager.IsActive) break;
+                    }
+                    return hitCount + " 名伙伴各造成指令伤害";
+                }
+
+                case CardEffectType.DrawThenDiscard:
+                {
+                    CombatManager.Deck.DrawToHand(eff.P0, GameStartParameters.MaxHandSize);
+                    int toDiscard = eff.P1;
+                    for (int i = 0; i < toDiscard && CombatManager.Deck.HandSize > 0; i++)
+                    {
+                        int idx = CombatManager.Deck.HandSize - 1;
+                        string cid = CombatManager.Deck.Hand[idx];
+                        CombatManager.Deck.DiscardFromHand(cid);
+                    }
+                    return "抽 " + eff.P0 + " 弃 " + toDiscard;
+                }
+
+                case CardEffectType.DiscardThenDraw:
+                {
+                    int toDiscard = eff.P0;
+                    for (int i = 0; i < toDiscard && CombatManager.Deck.HandSize > 0; i++)
+                    {
+                        string cid = CombatManager.Deck.Hand[0];
+                        CombatManager.Deck.DiscardFromHand(cid);
+                    }
+                    CombatManager.Deck.DrawToHand(eff.P1, GameStartParameters.MaxHandSize);
+                    return "弃 " + eff.P0 + " 抽 " + eff.P1;
+                }
+
+                case CardEffectType.ExhaustThenDraw:
+                {
+                    if (CombatManager.Deck.HandSize > 0)
+                    {
+                        int idx = CombatManager.Deck.HandSize - 1;
+                        string cid = CombatManager.Deck.Hand[idx];
+                        CombatManager.Deck.ExhaustFromHand(cid);
+                    }
+                    CombatManager.Deck.DrawToHand(eff.P0, GameStartParameters.MaxHandSize);
+                    return "消耗 1 张，抽 " + eff.P0 + " 张";
+                }
+
+                case CardEffectType.Choice:
+                {
+                    // MVP：默认选第一个选项（护甲）
+                    if (eff.P0 == 0)
+                    {
+                        var self = CombatManager.PlayerCharacter();
+                        if (self != null) self.AddArmor(5);
+                        return "应急：获得 5 护甲";
+                    }
+                    else
+                    {
+                        CombatManager.Deck.DrawToHand(1, GameStartParameters.MaxHandSize);
+                        return "应急：抽 1 张";
+                    }
+                }
+
+                default:
+                    return null;
+            }
         }
 
         private static List<CombatUnit> Alive(List<CombatUnit> units)

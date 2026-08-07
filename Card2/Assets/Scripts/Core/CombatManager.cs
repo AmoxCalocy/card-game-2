@@ -69,6 +69,12 @@ namespace OneJourney.Core
         /// <summary>玩家队伍掠夺层数 0-3（共享）：战斗胜利时每层失去 2 财富。</summary>
         public static int Plunder { get; private set; }
 
+        /// <summary>下回合额外抽牌数（C15 预备等卡牌效果，回合开始结算后清零）。</summary>
+        public static int PendingBonusDraw { get; set; }
+
+        /// <summary>本回合下一张牌费用减免（C19 节能，出牌后清零）。</summary>
+        public static int CostReductionRemaining { get; set; }
+
         public static int AddPlunder(int stacks)
         {
             Plunder = System.Math.Min(CombatStatus.MaxPlunder, Plunder + System.Math.Max(0, stacks));
@@ -151,7 +157,9 @@ namespace OneJourney.Core
             // 敌人抽取下一意图（玩家回合可见，供玩家规划）
             RevealEnemyIntents();
 
-            Deck.DrawToHand(GameStartParameters.CardsPerTurn, GameStartParameters.MaxHandSize);
+            int drawCount = GameStartParameters.CardsPerTurn + PendingBonusDraw;
+            PendingBonusDraw = 0;
+            Deck.DrawToHand(drawCount, GameStartParameters.MaxHandSize);
             CurrentTurnPhase = TurnPhase.PlayerTurn;
         }
 
@@ -179,6 +187,7 @@ namespace OneJourney.Core
             RunRecord.Log(RecordCategory.General, "玩家结束第 " + TurnNumber + " 回合");
 
             Energy = 0;
+            CostReductionRemaining = 0;
 
             ProcessEnemyTurn();
         }
@@ -234,7 +243,8 @@ namespace OneJourney.Core
                 {
                     case IntentKind.Attack:
                     {
-                        var target = PickDefaultTarget(targets);
+                        var target = intent.TargetsPlayer ? PlayerCharacter() : PickDefaultTarget(targets);
+                        if (target == null || !target.IsAlive) break;
                         result = CombatResolver.ApplyDamage(target, intent.Damage, fromPlayer: false);
                         ApplySideEffects(target, intent);
                         RunRecord.Log(RecordCategory.EnemyIntent, e.DisplayName + " 执行「" + intent.Name + "」→ " + result);
@@ -264,7 +274,8 @@ namespace OneJourney.Core
 
                     case IntentKind.Plunder:
                     {
-                        var target = PickDefaultTarget(targets);
+                        var target = intent.TargetsPlayer ? PlayerCharacter() : PickDefaultTarget(targets);
+                        if (target == null || !target.IsAlive) break;
                         CombatResolver.ApplyDamage(target, intent.Damage, fromPlayer: false);
                         ApplySideEffects(target, intent);
                         if (intent.PlunderStacks > 0)
@@ -335,6 +346,17 @@ namespace OneJourney.Core
             }
 
             return best;
+        }
+
+        /// <summary>获取存活的主角单位。</summary>
+        public static CombatUnit PlayerCharacter()
+        {
+            if (PlayerTeam == null) return null;
+            foreach (var u in PlayerTeam)
+            {
+                if (u.IsPlayerCharacter && u.IsAlive) return u;
+            }
+            return null;
         }
 
         // ------- 能量 -------
@@ -421,6 +443,8 @@ namespace OneJourney.Core
             Morale = 0;
             MoraleUsedThisTurn = false;
             Plunder = 0;
+            PendingBonusDraw = 0;
+            CostReductionRemaining = 0;
             PlayerTeam = null;
             EnemyTeam = null;
             Deck = null;

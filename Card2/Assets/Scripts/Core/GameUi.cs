@@ -51,6 +51,9 @@ namespace OneJourney.Core
         [SerializeField] private Button _prevEncounterButton;
         [SerializeField] private Button _nextEncounterButton;
 
+        [Header("手牌出牌（A1-13）")]
+        [SerializeField] private Transform _handCardContainer;
+
         private void Awake()
         {
             BindButtons();
@@ -148,12 +151,27 @@ namespace OneJourney.Core
 
             if (_playSingleCardButton != null)
             {
-                _playSingleCardButton.onClick.AddListener(() => OnPlayTestCard(TargetType.SingleEnemy, 1, 6));
+                _playSingleCardButton.onClick.AddListener(() => OnPlayHandCard(0));
             }
 
             if (_playAoeCardButton != null)
             {
-                _playAoeCardButton.onClick.AddListener(() => OnPlayTestCard(TargetType.AllEnemies, 2, 5));
+                _playAoeCardButton.onClick.AddListener(() =>
+                {
+                    // 找到手牌中第一个 AOE 卡并打出
+                    if (CombatManager.Deck == null) return;
+                    for (int i = 0; i < CombatManager.Deck.HandSize; i++)
+                    {
+                        var c = CardCatalog.Find(CombatManager.Deck.Hand[i]);
+                        if (c != null && c.TargetType == TargetType.AllEnemies)
+                        {
+                            OnPlayHandCard(i);
+                            return;
+                        }
+                    }
+                    // 没有 AOE 卡则打出第一张
+                    if (CombatManager.Deck.HandSize > 0) OnPlayHandCard(0);
+                });
             }
 
             if (_bleedButton != null)
@@ -245,6 +263,8 @@ namespace OneJourney.Core
             bool canSwitchEncounter = RunSession.CurrentState == GameState.Combat;
             if (_prevEncounterButton != null) _prevEncounterButton.gameObject.SetActive(canSwitchEncounter);
             if (_nextEncounterButton != null) _nextEncounterButton.gameObject.SetActive(canSwitchEncounter);
+
+            RefreshHandCards();
 
             Refresh();
         }
@@ -394,6 +414,16 @@ namespace OneJourney.Core
             ShowPage("测试入口：战斗", BuildCombatDescription());
         }
 
+        private void OnPlayHandCard(int handIndex)
+        {
+            if (!CombatManager.CanPlayerAct || CombatManager.Deck == null) return;
+            if (handIndex < 0 || handIndex >= CombatManager.Deck.HandSize) return;
+
+            string result = CombatResolver.PlayCard(handIndex);
+            RunSession.RecordResolution("手牌出牌", "打出第 " + (handIndex + 1) + " 张手牌", result);
+            ShowPage("测试入口：战斗", BuildCombatDescription());
+        }
+
         private void OnAddStatus(string name, System.Action action)
         {
             if (!CombatManager.CanPlayerAct) return;
@@ -522,6 +552,68 @@ namespace OneJourney.Core
             Refresh();
         }
 
+        private void RefreshHandCards()
+        {
+            // 如果场景中未指定容器，则尝试在 TestPage 下找到或创建一个
+            if (_handCardContainer == null)
+            {
+                var pagePanel = _pagePanel != null ? _pagePanel.transform : transform;
+                var existing = pagePanel.Find("HandCards");
+                if (existing != null) _handCardContainer = existing;
+            }
+
+            if (_handCardContainer == null) return;
+
+            // 清理旧按钮
+            for (int i = _handCardContainer.childCount - 1; i >= 0; i--)
+            {
+                var child = _handCardContainer.GetChild(i);
+                if (child.name.StartsWith("HC_"))
+                    Destroy(child.gameObject);
+            }
+
+            if (CombatManager.Deck == null || CombatManager.Deck.HandSize == 0) return;
+
+            Font defaultFont = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            for (int i = 0; i < CombatManager.Deck.HandSize; i++)
+            {
+                string cardId = CombatManager.Deck.Hand[i];
+                var card = CardCatalog.Find(cardId);
+                string label = card != null
+                    ? card.DisplayName + " " + card.Cost + "费"
+                    : cardId;
+
+                var go = new GameObject("HC_" + i, typeof(RectTransform), typeof(Image), typeof(Button), typeof(LayoutElement));
+                go.transform.SetParent(_handCardContainer, false);
+
+                var img = go.GetComponent<Image>();
+                img.color = new Color(0.25f, 0.35f, 0.5f);
+
+                var le = go.GetComponent<LayoutElement>();
+                le.minWidth = 120;
+                le.minHeight = 32;
+
+                var textGo = new GameObject("Text", typeof(RectTransform), typeof(Text));
+                textGo.transform.SetParent(go.transform, false);
+
+                var text = textGo.GetComponent<Text>();
+                text.text = label;
+                text.font = defaultFont;
+                text.fontSize = 14;
+                text.alignment = TextAnchor.MiddleCenter;
+                text.color = Color.white;
+                text.raycastTarget = false;
+
+                var textRt = (RectTransform)textGo.transform;
+                textRt.anchorMin = Vector2.zero;
+                textRt.anchorMax = Vector2.one;
+                textRt.sizeDelta = Vector2.zero;
+
+                int index = i;
+                go.GetComponent<Button>().onClick.AddListener(() => OnPlayHandCard(index));
+            }
+        }
+
         private static string BuildCombatDescription()
         {
             if (!CombatManager.IsActive) return "战斗未激活";
@@ -575,7 +667,9 @@ namespace OneJourney.Core
                     for (int i = 0; i < CombatManager.Deck.HandSize; i++)
                     {
                         if (i > 0) desc += ", ";
-                        desc += CombatManager.Deck.Hand[i];
+                        string cid = CombatManager.Deck.Hand[i];
+                        var cd = CardCatalog.Find(cid);
+                        desc += cd != null ? cd.DisplayName : cid;
                     }
                     desc += "]";
                 }
