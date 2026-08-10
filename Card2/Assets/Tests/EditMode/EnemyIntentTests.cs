@@ -167,30 +167,23 @@ namespace OneJourney.Tests.EditMode
         }
 
         [Test]
-        public void PickDefaultTarget_LowestHpRatio()
-        {
-            CombatManager.Init(_players, _enemies, _deck);
-            var p1 = CombatManager.PlayerTeam[0]; // 主角 45/45 = 100%
-            var p2 = CombatManager.PlayerTeam[1]; // 阿德里安 42/42 = 100%
-            p2.CurrentHp = 20; // 20/42 ≈ 47.6%
-
-            var target = CombatManager.PickDefaultTarget(CombatManager.PlayerTeam);
-
-            Assert.AreEqual(p2, target, "应选择生命百分比最低的单位");
-        }
-
-        [Test]
-        public void PickDefaultTarget_Tie_PrefersPlayerCharacter()
+        public void PickDefaultTarget_ReturnsFirstAliveUnit()
         {
             CombatManager.Init(_players, _enemies, _deck);
             var p1 = CombatManager.PlayerTeam[0];
-            var p2 = CombatManager.PlayerTeam[1];
-            p1.CurrentHp = 30; // 30/45 = 66.7%
-            p2.CurrentHp = 28; // 28/42 = 66.7% 相同比例
+            p1.CurrentHp = 0; // 第一位阵亡
 
             var target = CombatManager.PickDefaultTarget(CombatManager.PlayerTeam);
 
-            Assert.AreEqual(p1, target, "比例相同时主角优先");
+            Assert.AreEqual(CombatManager.PlayerTeam[1], target, "应选择第一位存活单位");
+        }
+
+        [Test]
+        public void PickDefaultTarget_FirstAlive_WhenAllFullHp()
+        {
+            CombatManager.Init(_players, _enemies, _deck);
+            var target = CombatManager.PickDefaultTarget(CombatManager.PlayerTeam);
+            Assert.AreEqual(CombatManager.PlayerTeam[0], target, "满血时选择队伍第一位");
         }
 
         [Test]

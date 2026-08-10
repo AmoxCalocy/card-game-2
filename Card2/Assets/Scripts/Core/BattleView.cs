@@ -17,6 +17,7 @@ namespace OneJourney.Core
         [SerializeField] private GameObject _handCardPrefab;
         [SerializeField] private GameObject _unitCardPrefab;   // 队伍用
         [SerializeField] private GameObject _enemyCardPrefab;  // 敌人用
+        [SerializeField] private GameObject _skipRewardButtonPrefab; // 跳过奖励按钮
 
         // 从 Prefab 实例中解析的引用（非序列化）
         private GameObject _rootPanel;
@@ -49,13 +50,19 @@ namespace OneJourney.Core
             if (_rootPanel == null)
             {
                 if (_battlePagePrefab == null) return;
-                var canvasTr = GetComponentInChildren<Canvas>()?.transform ?? transform;
+                var canvas = GetComponentInChildren<Canvas>();
+                var canvasTr = canvas != null ? canvas.transform : transform;
                 _rootPanel = Instantiate(_battlePagePrefab, canvasTr);
                 ResolveRefs();
                 if (_endTurnButton != null) _endTurnButton.onClick.AddListener(OnEndTurn);
                 if (_returnButton != null) _returnButton.onClick.AddListener(OnReturn);
+
+                // 确保 HUD 渲染在最上层
+                var hud = canvasTr.Find("TestHud");
+                if (hud != null) hud.SetAsLastSibling();
             }
 
+            _postCombatBuilt = false;
             _rootPanel.SetActive(true);
             Refresh();
         }
@@ -64,12 +71,21 @@ namespace OneJourney.Core
         {
             if (_rootPanel != null) _rootPanel.SetActive(false);
             _selectedHandIndex = -1; _selectedCard = null; _targetMode = false;
+            _postCombatBuilt = false;
         }
 
         public void Refresh()
         {
             if (_rootPanel == null || !_rootPanel.activeSelf) return;
-            if (!CombatManager.IsActive) { Hide(); return; }
+            if (CombatManager.Phase != CombatPhase.Running)
+            {
+                // 战斗已结束（胜利/失败），显示结算信息
+                if (CombatManager.Phase == CombatPhase.Victory || CombatManager.Phase == CombatPhase.Defeat)
+                    RefreshPostCombat();
+                else
+                    Hide();
+                return;
+            }
             RefreshTurnInfo();
             RefreshTeam();
             RefreshEnemies();
@@ -89,13 +105,117 @@ namespace OneJourney.Core
             _energyText = r.Find("TopBar/EnergyLabel")?.GetComponent<TMP_Text>();
             _moraleText = r.Find("TopBar/MoraleLabel")?.GetComponent<TMP_Text>();
             _plunderText = r.Find("TopBar/PlunderLabel")?.GetComponent<TMP_Text>();
-            _endTurnButton = r.Find("TopBar/EndTurnBtn")?.GetComponent<Button>();
+            // 结束回合按钮：TopBar 或 MainArea 下均可
+            _endTurnButton = r.Find("TopBar/EndTurnBtn")?.GetComponent<Button>()
+                ?? r.Find("MainArea/EndTurnBtn")?.GetComponent<Button>();
             _returnButton = r.Find("MainArea/RightPanel/ReturnBtn")?.GetComponent<Button>();
             _teamContainer = r.Find("MainArea/TeamPanel");
             _enemyContainer = r.Find("MainArea/EnemyPanel");
             _handContainer = r.Find("BottomBar/HandCards");
             _drawPileText = r.Find("BottomBar/DrawPile/DrawCount")?.GetComponent<TMP_Text>();
             _discardPileText = r.Find("BottomBar/DiscardPile/DiscardCount")?.GetComponent<TMP_Text>();
+        }
+
+        private bool _postCombatBuilt;
+
+        private void RefreshPostCombat()
+        {
+            // 防重入：同一状态只重建一次
+            if (_postCombatBuilt) return;
+            _postCombatBuilt = true;
+
+            // 清空手牌区（延迟销毁避免点击事件被吞）
+            for (int i = _handContainer.childCount - 1; i >= 0; i--)
+                Destroy(_handContainer.GetChild(i).gameObject);
+            _handCardGos.Clear();
+
+            // 显示结算信息
+            if (_turnInfoText != null)
+            {
+                string result = CombatManager.Phase == CombatPhase.Victory ? "胜利！" : "失败";
+                _turnInfoText.text = "战斗结束 — " + result;
+            }
+            if (_energyText != null) _energyText.text = "";
+            if (_moraleText != null) _moraleText.text = "";
+            if (_plunderText != null) _plunderText.text = "";
+
+            // 刷新队伍/敌人显示最终状态
+            RefreshTeam();
+            RefreshEnemies();
+
+            if (RewardResolver.HasPendingRewards)
+            {
+                for (int i = 0; i < RewardResolver.PendingOptions.Count; i++)
+                {
+                    int idx = i;
+                    var opt = RewardResolver.PendingOptions[i];
+                    var cardDef = CardCatalog.Find(opt.CardId);
+                    if (cardDef == null) continue;
+
+                    // 用 HandCard Prefab 展示奖励卡牌
+                    var go = Instantiate(_handCardPrefab, _handContainer);
+                    go.name = "Reward_" + cardDef.Id;
+
+                    Color baseColor = CardColor(cardDef);
+                    var img = go.GetComponent<Image>();
+                    if (img != null) img.color = new Color(baseColor.r * 0.6f, baseColor.g * 0.6f, baseColor.b * 0.6f);
+                    var bar = go.transform.Find("TopBar");
+                    if (bar != null)
+                    {
+                        var barImg = bar.GetComponent<Image>();
+                        if (barImg != null) barImg.color = baseColor;
+                    }
+
+                    SetTmp(go, "Word/CostRow/Cost", cardDef.Cost.ToString());
+                    SetTmp(go, "Word/CostRow/Name", cardDef.DisplayName);
+                    SetTmp(go, "Word/Effect", cardDef.EffectText);
+
+                    var btn = go.GetComponent<Button>();
+                    if (btn != null)
+                    {
+                        btn.onClick.RemoveAllListeners();
+                        btn.onClick.AddListener(() => {
+                            string claimed = RewardResolver.ClaimCard(idx);
+                            if (claimed != null && RunSession.CampaignDeck != null)
+                            {
+                                RunSession.CampaignDeck.AddCard(claimed);
+                                RunSession.RecordResolution("战斗奖励", "选择卡牌 " + claimed,
+                                    "已加入牌组，当前 " + RunSession.CampaignDeck.Count + " 张");
+                            }
+                            _postCombatBuilt = false;
+                            StartCoroutine(RebuildPostCombatNextFrame());
+                        });
+                    }
+                }
+
+                // 跳过按钮（Prefab）
+                var skipGo = _skipRewardButtonPrefab != null
+                    ? Instantiate(_skipRewardButtonPrefab, _handContainer)
+                    : null;
+                if (skipGo != null)
+                {
+                    var skipBtn = skipGo.GetComponent<Button>();
+                    if (skipBtn != null)
+                    {
+                        skipBtn.onClick.RemoveAllListeners();
+                        skipBtn.onClick.AddListener(() => {
+                            RewardResolver.SkipReward();
+                            RunSession.RecordResolution("战斗奖励", "跳过卡牌奖励", "已放弃选择");
+                            _postCombatBuilt = false;
+                            RefreshPostCombat();
+                        });
+                    }
+                }
+            }
+
+            if (_endTurnButton != null) _endTurnButton.gameObject.SetActive(false);
+        }
+
+        private System.Collections.IEnumerator RebuildPostCombatNextFrame()
+        {
+            yield return null; // 等点击事件完全结束再重建
+            _postCombatBuilt = false;
+            RefreshPostCombat();
         }
 
         private void RefreshTurnInfo()
@@ -149,7 +269,15 @@ namespace OneJourney.Core
             var nameT = go.transform.Find("Name")?.GetComponent<TMP_Text>();
             if (nameT != null) nameT.color = unit.IsAlive ? Color.white : Color.gray;
 
-            string hpStr = "生命 " + unit.CurrentHp + "/" + unit.EffectiveMaxHp;
+            // 伙伴定位/特质
+            string subText = "";
+            if (!unit.IsPlayerCharacter)
+            {
+                var partner = PartnerRoster.Find(unit.Id);
+                if (partner != null) subText = partner.Def.Role + " · " + partner.Def.Trait;
+            }
+            string hpStr = (subText.Length > 0 ? subText + "\n" : "")
+                + "生命 " + unit.CurrentHp + "/" + unit.EffectiveMaxHp;
             if (unit.Armor > 0) hpStr += "  护甲 " + unit.Armor;
             SetTmp(go, "HP", hpStr);
 
@@ -281,7 +409,6 @@ namespace OneJourney.Core
 
         private void OnReturn()
         {
-            CombatManager.End();
             Hide();
             var ui = FindObjectOfType<GameUi>();
             if (ui != null) ui.ReturnToMenu();

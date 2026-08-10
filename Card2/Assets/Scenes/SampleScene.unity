@@ -5172,6 +5172,7 @@ MonoBehaviour:
   _handCardPrefab: {fileID: 5300395429492813785, guid: 0030a53e91a25274d91c3e3bb21c899d, type: 3}
   _unitCardPrefab: {fileID: 4208501776571738369, guid: 11cc61dd948f2f74bba39b2cca216db8, type: 3}
   _enemyCardPrefab: {fileID: 4208501776571738369, guid: ff8eb7382d75943418c9244a92c393e0, type: 3}
+  _skipRewardButtonPrefab: {fileID: 8250057527880580244, guid: 6b5574c5d2da6ff4a82b42ffd370a07b, type: 3}
 --- !u!1 &1373307187
 GameObject:
   m_ObjectHideFlags: 0

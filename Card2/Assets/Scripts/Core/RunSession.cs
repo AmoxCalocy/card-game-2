@@ -43,6 +43,9 @@ namespace OneJourney.Core
         /// <summary>本局可复现随机数生成器（仅在 StartNewGame / EnterTestPage 之后可用）。</summary>
         public static GameRandom Random { get; private set; }
 
+        /// <summary>战役牌组（A2-16）：战斗外持久化卡牌集合。</summary>
+        public static CampaignDeck CampaignDeck { get; private set; }
+
         public static GameState CurrentState => GameFlow.CurrentState;
 
         public static IReadOnlyList<ResolutionRecord> Records => RecordsList;
@@ -122,23 +125,25 @@ namespace OneJourney.Core
 
         private static void InitTestCombat()
         {
+            PartnerRoster.InitTestRoster();
             var player = CombatUnit.CreatePlayer(45, 6);
-            var companion = CombatUnit.CreateCompanion("P01", "阿德里安(测试)", 42, 5);
+            var team = PartnerRoster.BuildCombatTeam(player);
 
             var cfg = EncounterConfig.All[_testEncounterIndex % EncounterConfig.All.Length];
             var enemies = new List<CombatUnit>(cfg.Enemies);
 
-            var deck = new List<string>(GameStartParameters.StartingDeck);
-            CombatManager.Init(
-                new[] { player, companion },
-                enemies,
-                deck);
+            // 使用战役牌组（首次自动初始化）
+            if (CampaignDeck == null)
+                CampaignDeck = new CampaignDeck(GameStartParameters.StartingDeck);
+            var deck = CampaignDeck.CloneCardList();
+            CombatManager.Init(team, enemies, deck);
+            CombatManager.CurrentEncounterType = cfg.Type;
 
             RecordResolution(
                 "战斗初始化",
                 "测试战斗：" + cfg.Label,
                 CombatManager.IsActive
-                    ? "玩家队伍 2 人 / 敌人 " + enemies.Count + " 个"
+                    ? "玩家队伍 " + team.Count + " 人 / 敌人 " + enemies.Count + " 个"
                     : "初始化失败（检查日志）");
         }
 
@@ -176,6 +181,7 @@ namespace OneJourney.Core
             GameFlow.Reset();
             RunRecord.Clear();
             RecordsList.Clear();
+            PartnerRoster.Clear();
             Changed?.Invoke();
         }
 

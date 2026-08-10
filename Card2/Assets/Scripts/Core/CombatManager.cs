@@ -75,6 +75,9 @@ namespace OneJourney.Core
         /// <summary>本回合下一张牌费用减免（C19 节能，出牌后清零）。</summary>
         public static int CostReductionRemaining { get; set; }
 
+        /// <summary>当前遭遇类型（用于奖励生成）。</summary>
+        public static EncounterConfig.EncounterType CurrentEncounterType { get; set; }
+
         public static int AddPlunder(int stacks)
         {
             Plunder = System.Math.Min(CombatStatus.MaxPlunder, Plunder + System.Math.Max(0, stacks));
@@ -322,30 +325,16 @@ namespace OneJourney.Core
         }
 
         /// <summary>
-        /// 默认目标：当前生命百分比最低的存活单位；同值按主角、招募顺序判定（配置表 §2.1）。
+        /// 默认目标：队伍第一位存活单位（用户确认规则：敌人默认攻击第一位）。
         /// </summary>
         public static CombatUnit PickDefaultTarget(List<CombatUnit> candidates)
         {
-            CombatUnit best = null;
-            float bestRatio = float.MaxValue;
-            int bestOrder = int.MaxValue;
-
+            if (candidates == null) return null;
             foreach (var u in candidates)
             {
-                if (!u.IsAlive) continue;
-
-                float ratio = (float)u.CurrentHp / u.EffectiveMaxHp;
-                int order = u.IsPlayerCharacter ? 0 : 1;
-                if (ratio < bestRatio - 0.0001f
-                    || (System.Math.Abs(ratio - bestRatio) <= 0.0001f && order < bestOrder))
-                {
-                    best = u;
-                    bestRatio = ratio;
-                    bestOrder = order;
-                }
+                if (u.IsAlive) return u;
             }
-
-            return best;
+            return null;
         }
 
         /// <summary>获取存活的主角单位。</summary>
@@ -415,6 +404,14 @@ namespace OneJourney.Core
                 CurrentTurnPhase = TurnPhase.None;
                 Energy = 0;
                 RunRecord.Log(RecordCategory.General, "所有敌人被击败，战斗胜利");
+
+                // A2-16：战斗胜利后同步伙伴状态并生成奖励
+                PartnerRoster.SyncFromCombat(PlayerTeam);
+                RewardResolver.GenerateRewards(CurrentEncounterType, "草原");
+                RunRecord.Log(RecordCategory.General,
+                    "奖励已生成：" + RewardResolver.PendingOptions.Count + " 张卡牌可选，财富 "
+                    + RewardResolver.PendingWealth + " 粮食 " + RewardResolver.PendingFood);
+
                 return "victory";
             }
 

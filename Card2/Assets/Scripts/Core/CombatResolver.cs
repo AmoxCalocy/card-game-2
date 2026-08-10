@@ -35,9 +35,10 @@ namespace OneJourney.Core
 
                 case TargetType.Self:
                 {
-                    var self = CombatManager.PlayerTeam.Find(u => u.IsPlayerCharacter);
-                    if (self == null || !self.IsAlive) issue = "主角不存在或已死亡";
-                    return self != null && self.IsAlive ? new List<CombatUnit> { self } : new List<CombatUnit>();
+                    // 自身 = 队伍第一位存活单位（用户确认规则）
+                    var first = CombatManager.PickDefaultTarget(CombatManager.PlayerTeam);
+                    if (first == null) issue = "没有存活单位";
+                    return first != null ? new List<CombatUnit> { first } : new List<CombatUnit>();
                 }
 
                 case TargetType.SingleAlly:
@@ -245,7 +246,7 @@ namespace OneJourney.Core
                             met = checkUnit.Bleed >= 2;
                             break;
                         case EffectCondition.SelfArmorGE10:
-                            var self = CombatManager.PlayerCharacter();
+                            var self = CombatManager.PickDefaultTarget(CombatManager.PlayerTeam);
                             met = self != null && self.Armor >= 10;
                             break;
                     }
@@ -451,9 +452,9 @@ namespace OneJourney.Core
 
                 case CardEffectType.SelfArmor:
                 {
-                    var self = CombatManager.PlayerCharacter();
+                    var self = CombatManager.PickDefaultTarget(CombatManager.PlayerTeam);
                     if (self != null) self.AddArmor(eff.P0);
-                    return "主角获得 " + eff.P0 + " 护甲";
+                    return self != null ? self.DisplayName + " 获得 " + eff.P0 + " 护甲" : null;
                 }
 
                 case CardEffectType.PartnerArmor:
@@ -624,7 +625,7 @@ namespace OneJourney.Core
                     // MVP：默认选第一个选项（护甲）
                     if (eff.P0 == 0)
                     {
-                        var self = CombatManager.PlayerCharacter();
+                        var self = CombatManager.PickDefaultTarget(CombatManager.PlayerTeam);
                         if (self != null) self.AddArmor(5);
                         return "应急：获得 5 护甲";
                     }
