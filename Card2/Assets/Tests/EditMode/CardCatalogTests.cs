@@ -90,6 +90,9 @@ namespace OneJourney.Tests.EditMode
         public void PlayCard_FromHand_ConsumesEnergy()
         {
             CombatManager.Init(_players, _enemies, _deck);
+            // 固定手牌为一张 1 费剑击，避免依赖随机洗牌结果
+            CombatManager.Deck.Hand.Clear();
+            CombatManager.Deck.Hand.Add("C01");
             int energyBefore = CombatManager.Energy;
             // 手牌第一张应为 C01 剑击（1费）
             string result = CombatResolver.PlayCard(0);
@@ -109,6 +112,9 @@ namespace OneJourney.Tests.EditMode
         public void PlayCard_NotEnoughEnergy_ReturnsError()
         {
             CombatManager.Init(_players, _enemies, _deck);
+            // 固定手牌为 4 张 1 费剑击，避免依赖随机洗牌结果
+            CombatManager.Deck.Hand.Clear();
+            for (int i = 0; i < 4; i++) CombatManager.Deck.Hand.Add("C01");
             // 出完所有能量（每张 1 费 ×3）
             for (int i = 0; i < 3; i++) CombatResolver.PlayCard(0);
             Assert.AreEqual(0, CombatManager.Energy);
@@ -149,9 +155,10 @@ namespace OneJourney.Tests.EditMode
             CombatManager.Init(_players, _enemies, _deck);
             var enemy = CombatManager.EnemyTeam[0];
             int before = enemy.CurrentHp;
-            // 手牌中有 C01×4，打出其中一张
-            int idx = CombatManager.Deck.Hand.IndexOf("C01");
-            CombatResolver.PlayCard(idx);
+            // 固定手牌为一张剑击，避免依赖随机洗牌结果
+            CombatManager.Deck.Hand.Clear();
+            CombatManager.Deck.Hand.Add("C01");
+            CombatResolver.PlayCard(0);
             Assert.AreEqual(before - 6, enemy.CurrentHp, "应造成 6 伤害");
         }
 

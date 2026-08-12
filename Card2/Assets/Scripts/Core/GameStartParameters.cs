@@ -36,6 +36,10 @@ namespace OneJourney.Core
         // 风险（配置表 §2.4）
         public const int RiskThreshold = 10;
         public const int RiskAfterCrisis = 5;
+        public const int GrasslandMoveRisk = 1; // 草原每次移动风险 +1
+        public const int ForestMoveRisk = 2; // 密林每次移动风险 +2
+        public const int EliteMoveRiskExtra = 1; // 进入精英节点额外风险 +1
+        public const int CampRiskReduction = 2; // 营地节点结算后风险 -2（A2-21 使用）
 
         // 垂直切片目标：击败密林首领（配置表 §5）
         public const string VerticalSliceBossEnemyId = "EN10";

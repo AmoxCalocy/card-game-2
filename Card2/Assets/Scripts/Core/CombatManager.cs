@@ -407,6 +407,7 @@ namespace OneJourney.Core
 
                 // A2-16：战斗胜利后同步伙伴状态并生成奖励
                 PartnerRoster.SyncFromCombat(PlayerTeam);
+                RunSession.SyncPlayerFromCombat(PlayerTeam);
                 RewardResolver.GenerateRewards(CurrentEncounterType, "草原");
                 RunRecord.Log(RecordCategory.General,
                     "奖励已生成：" + RewardResolver.PendingOptions.Count + " 张卡牌可选，财富 "

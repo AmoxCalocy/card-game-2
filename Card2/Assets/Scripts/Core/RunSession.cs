@@ -46,6 +46,15 @@ namespace OneJourney.Core
         /// <summary>战役牌组（A2-16）：战斗外持久化卡牌集合。</summary>
         public static CampaignDeck CampaignDeck { get; private set; }
 
+        // ---- 战役资源与风险（配置表 §2.4，A2-18）----
+        public static int Food { get; private set; }
+        public static int Wealth { get; private set; }
+        public static int Reputation { get; private set; }
+        public static int Materials { get; private set; }
+        public static int Risk { get; private set; }              // 当前区域风险 0-10
+        public static int PlayerFatigue { get; private set; }     // 主角战役疲劳（粮食不足惩罚，0-3）
+        public static bool AmbushPending { get; private set; }    // 危机伏击待触发标记（风险达阈值时置位）
+
         public static GameState CurrentState => GameFlow.CurrentState;
 
         public static IReadOnlyList<ResolutionRecord> Records => RecordsList;
@@ -87,6 +96,9 @@ namespace OneJourney.Core
             Random = new GameRandom(Seed);
             RunRecord.Clear();
             RecordsList.Clear();
+            InitCampaignResources();
+
+            bool mapOk = RegionMap.Generate(ContentRegion.Plains, Random);
             RecordResolution(
                 "会话初始化",
                 "新游戏开始",
@@ -94,7 +106,8 @@ namespace OneJourney.Core
                 + " 财富" + GameStartParameters.StartWealth
                 + " 声望" + GameStartParameters.StartReputation
                 + " 建材" + GameStartParameters.StartBuildingMaterials
-                + "；起始牌组 " + GameStartParameters.StartingDeck.Length + " 张");
+                + "；起始牌组 " + GameStartParameters.StartingDeck.Length + " 张"
+                + (mapOk ? "；草原地图已生成" : "；地图生成失败"));
         }
 
         public static void EnterTestPage(GameState page)
@@ -113,11 +126,17 @@ namespace OneJourney.Core
             Random = new GameRandom(Seed);
             RunRecord.Clear();
             RecordsList.Clear();
+            InitCampaignResources();
             RecordResolution("测试入口", "直接进入" + DisplayName(page), "随机种子 " + Seed);
 
             if (page == GameState.Combat)
             {
                 InitTestCombat();
+            }
+            else if (page == GameState.Map)
+            {
+                RegionMap.Generate(ContentRegion.Plains, Random);
+                RecordResolution("地图初始化", "草原地图已生成", RegionMap.Nodes.Count + " 个节点 / 4 层");
             }
         }
 
@@ -182,7 +201,113 @@ namespace OneJourney.Core
             RunRecord.Clear();
             RecordsList.Clear();
             PartnerRoster.Clear();
+            RewardResolver.Clear();
+            RegionMap.Clear();
+            Food = 0;
+            Wealth = 0;
+            Reputation = 0;
+            Materials = 0;
+            Risk = 0;
+            PlayerFatigue = 0;
+            AmbushPending = false;
             Changed?.Invoke();
+        }
+
+        /// <summary>初始化战役资源与风险（配置表 §2.4）。新游戏与测试入口共用。</summary>
+        private static void InitCampaignResources()
+        {
+            Food = GameStartParameters.StartFood;
+            Wealth = GameStartParameters.StartWealth;
+            Reputation = GameStartParameters.StartReputation;
+            Materials = GameStartParameters.StartBuildingMaterials;
+            Risk = 0;
+            PlayerFatigue = 0;
+            AmbushPending = false;
+        }
+
+        /// <summary>
+        /// 移动结算（A2-18，配置表 §2.4/§9）：先执行地图移动，成功后结算粮食消耗、
+        /// 粮食不足惩罚（主角疲劳 +1、风险 +2）、风险增长（区域基础 +1，精英额外 +1）。
+        /// 风险达到阈值 10 时重置为 5 并标记危机伏击待触发（实际伏击战斗留待节点内容接入）。
+        /// 返回可读结算文本；移动被拒绝时返回原因且资源不变。
+        /// </summary>
+        public static string TryMoveToNode(int nodeIndex)
+        {
+            if (!RegionMap.TryMoveTo(nodeIndex, out string reason))
+            {
+                return "移动被拒绝：" + reason;
+            }
+
+            var node = RegionMap.Nodes[nodeIndex];
+            int foodBefore = Food;
+
+            // 粮食消耗：草原 1 / 密林 2（密林地图 A2-23 接入）
+            int foodCost = RegionMap.Region == ContentRegion.Plains
+                ? GameStartParameters.GrasslandMoveFoodCost
+                : GameStartParameters.ForestMoveFoodCost;
+
+            var effects = new System.Collections.Generic.List<string>();
+            if (Food >= foodCost)
+            {
+                Food -= foodCost;
+                effects.Add("粮食 -" + foodCost);
+            }
+            else
+            {
+                // 粮食不足：消耗至 0，主角疲劳 +1，风险 +2，仍可移动
+                Food = 0;
+                PlayerFatigue = System.Math.Min(PlayerFatigue + GameStartParameters.StarvationFatigueGain, CombatStatus.MaxFatigue);
+                Risk = System.Math.Min(Risk + GameStartParameters.StarvationRiskGain, GameStartParameters.RiskThreshold);
+                effects.Add("粮食不足！粮食降至 0，主角疲劳 +1（当前 " + PlayerFatigue + "），风险 +2");
+            }
+
+            // 风险增长：区域基础 + 精英额外
+            int riskGain = RegionMap.Region == ContentRegion.Plains
+                ? GameStartParameters.GrasslandMoveRisk
+                : GameStartParameters.ForestMoveRisk;
+            if (node.Type == NodeType.Elite) riskGain += GameStartParameters.EliteMoveRiskExtra;
+            Risk = System.Math.Min(Risk + riskGain, GameStartParameters.RiskThreshold);
+            effects.Add("风险 +" + riskGain + "（当前 " + Risk + "/" + GameStartParameters.RiskThreshold + "）");
+
+            // 风险阈值：达到 10 → 重置 5 + 危机伏击标记（伏击战斗在节点内容接入后触发）
+            bool crisis = Risk >= GameStartParameters.RiskThreshold;
+            if (crisis)
+            {
+                Risk = GameStartParameters.RiskAfterCrisis;
+                AmbushPending = true;
+                effects.Add("风险达到阈值！重置为 " + GameStartParameters.RiskAfterCrisis + "，危机伏击待触发");
+            }
+
+            string result = "移动到 " + node.DisplayName + "（第 " + node.Layer + " 层 / "
+                + RegionMapNode.NodeTypeName(node.Type) + "）；" + string.Join("；", effects)
+                + "。粮食 " + foodBefore + " → " + Food;
+            RecordResolution("地图移动", "移动到 " + node.DisplayName + "（第 " + node.Layer + " 层）", result);
+            return result;
+        }
+
+        /// <summary>战斗胜利后同步主角战役疲劳（粮食不足惩罚的长期效果）。</summary>
+        public static void SyncPlayerFromCombat(System.Collections.Generic.IReadOnlyList<CombatUnit> team)
+        {
+            foreach (var u in team)
+            {
+                if (u.IsPlayerCharacter)
+                {
+                    PlayerFatigue = u.IsAlive ? u.Fatigue : PlayerFatigue;
+                    return;
+                }
+            }
+        }
+
+        // ---- 测试辅助（仅 EditMode 测试使用）----
+
+        public static void SetFoodForTest(int value)
+        {
+            Food = System.Math.Max(0, value);
+        }
+
+        public static void SetRiskForTest(int value)
+        {
+            Risk = System.Math.Clamp(value, 0, GameStartParameters.RiskThreshold);
         }
 
         public static string DisplayName(GameState state)

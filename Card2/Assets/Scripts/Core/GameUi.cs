@@ -54,6 +54,9 @@ namespace OneJourney.Core
         [Header("手牌出牌（A1-13）")]
         [SerializeField] private Transform _handCardContainer;
 
+        [Header("地图节点（A2-17）")]
+        [SerializeField] private Transform _mapNodeContainer;
+
         [Header("战斗界面（A1-14）")]
         [SerializeField] private BattleView _battleView;
 
@@ -280,6 +283,7 @@ namespace OneJourney.Core
             if (_nextEncounterButton != null) _nextEncounterButton.gameObject.SetActive(canSwitchEncounter);
 
             RefreshHandCards();
+            RefreshMapNodes();
 
             Refresh();
         }
@@ -287,7 +291,7 @@ namespace OneJourney.Core
         private void OnStartNewGame()
         {
             RunSession.StartNewGame();
-            ShowPage("地图（新游戏入口）", "新游戏会话已创建。后续步骤将在此实现地图流程；当前为第 1 步占位页面。");
+            ShowPage("地图（新游戏入口）", BuildMapDescription());
         }
 
         private void OnStartWithSeed()
@@ -300,7 +304,7 @@ namespace OneJourney.Core
 
             RunSession.StartNewGame(seed);
             ShowPage("地图（指定种子）",
-                "新游戏会话已创建（" + (seed.HasValue ? "种子 " + seed.Value : "随机种子") + "）。");
+                "新游戏会话已创建（" + (seed.HasValue ? "种子 " + seed.Value : "随机种子") + "）。\n" + BuildMapDescription());
         }
 
         private void OnEnterTestPage(GameState page)
@@ -311,6 +315,10 @@ namespace OneJourney.Core
             {
                 desc = "遭遇：" + RunSession.CurrentEncounterLabel() + "\n";
                 desc += CombatManager.IsActive ? BuildCombatDescription() : "点击「◀ 上一组 / 下一组 ▶」切换敌人，返回主菜单再次进入测试。";
+            }
+            else if (page == GameState.Map)
+            {
+                desc = BuildMapDescription();
             }
             else
             {
@@ -638,6 +646,142 @@ namespace OneJourney.Core
                 int index = i;
                 go.GetComponent<Button>().onClick.AddListener(() => OnPlayHandCard(index));
             }
+        }
+
+        private void RefreshMapNodes()
+        {
+            // 如果场景中未指定容器，则尝试在 TestPage 下找到或创建一个
+            if (_mapNodeContainer == null)
+            {
+                var pagePanel = _pagePanel != null ? _pagePanel.transform : transform;
+                var existing = pagePanel.Find("MapNodes");
+                if (existing != null) _mapNodeContainer = existing;
+            }
+
+            if (_mapNodeContainer == null) return;
+
+            bool showMap = RunSession.CurrentState == GameState.Map && RegionMap.IsGenerated;
+            _mapNodeContainer.gameObject.SetActive(showMap);
+            if (!showMap) return;
+
+            // 清理旧按钮
+            for (int i = _mapNodeContainer.childCount - 1; i >= 0; i--)
+            {
+                var child = _mapNodeContainer.GetChild(i);
+                if (child.name.StartsWith("MN_"))
+                    Destroy(child.gameObject);
+            }
+
+            var reachable = RegionMap.ReachableNext();
+            var nodes = RegionMap.Nodes;
+            Font defaultFont = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+
+            for (int i = 0; i < nodes.Count; i++)
+            {
+                var node = nodes[i];
+                bool canMove = reachable.Contains(i);
+                bool isCurrent = RegionMap.CurrentNodeIndex == i;
+                bool isVisited = RegionMap.IsVisited(i);
+
+                string marker = isCurrent ? "◆ " : (isVisited ? "· " : "");
+                string label = marker + "第" + node.Layer + "层·" + node.DisplayName;
+
+                var go = new GameObject("MN_" + i, typeof(RectTransform), typeof(Image), typeof(Button), typeof(LayoutElement));
+                go.transform.SetParent(_mapNodeContainer, false);
+
+                var img = go.GetComponent<Image>();
+                if (isCurrent) img.color = new Color(0.4f, 0.55f, 0.3f);
+                else if (canMove) img.color = new Color(0.3f, 0.45f, 0.6f);
+                else img.color = new Color(0.22f, 0.22f, 0.28f);
+
+                var le = go.GetComponent<LayoutElement>();
+                le.minWidth = 200;
+                le.minHeight = 30;
+
+                var textGo = new GameObject("Text", typeof(RectTransform), typeof(Text));
+                textGo.transform.SetParent(go.transform, false);
+
+                var text = textGo.GetComponent<Text>();
+                text.text = label;
+                text.font = defaultFont;
+                text.fontSize = 14;
+                text.alignment = TextAnchor.MiddleCenter;
+                text.color = Color.white;
+                text.raycastTarget = false;
+
+                var textRt = (RectTransform)textGo.transform;
+                textRt.anchorMin = Vector2.zero;
+                textRt.anchorMax = Vector2.one;
+                textRt.sizeDelta = Vector2.zero;
+
+                int index = i;
+                var btn = go.GetComponent<Button>();
+                btn.interactable = canMove;
+                btn.onClick.AddListener(() => OnMapNodeClicked(index));
+            }
+        }
+
+        private void OnMapNodeClicked(int nodeIndex)
+        {
+            if (RegionMap.TryMoveTo(nodeIndex, out string reason))
+            {
+                var node = RegionMap.Nodes[nodeIndex];
+                RunSession.RecordResolution(
+                    "地图移动",
+                    "移动到 " + node.DisplayName + "（第 " + node.Layer + " 层）",
+                    "当前位置：" + RegionMapNode.NodeTypeName(node.Type) + "，剩余 " + RegionMap.RemainingLayers + " 层");
+            }
+            else
+            {
+                RunSession.RecordResolution("地图移动", "移动被拒绝", reason);
+            }
+
+            ShowPage("地图", BuildMapDescription());
+        }
+
+        private static string BuildMapDescription()
+        {
+            if (!RegionMap.IsGenerated) return "地图尚未生成。";
+
+            string desc = "草原地图（共 " + RegionMap.LayerCount + " 层）\n";
+            desc += "当前位置：" + (RegionMap.CurrentNodeIndex < 0 ? "起点" : RegionMap.Nodes[RegionMap.CurrentNodeIndex].DisplayName)
+                + "（第 " + RegionMap.CurrentLayer + " 层）";
+            desc += " | 剩余层数：" + RegionMap.RemainingLayers + "\n";
+
+            if (RegionMap.Path.Count > 0)
+            {
+                desc += "当前路径：起点";
+                for (int i = 0; i < RegionMap.Path.Count; i++)
+                {
+                    desc += " → " + RegionMap.Nodes[RegionMap.Path[i]].DisplayName;
+                }
+                desc += "\n";
+            }
+
+            desc += "资源：粮食 " + GameStartParameters.StartFood
+                + " / 财富 " + GameStartParameters.StartWealth
+                + " / 声望 " + GameStartParameters.StartReputation
+                + " / 建材 " + GameStartParameters.StartBuildingMaterials + "\n";
+            desc += "风险提示：草原每次移动风险 +1，精英节点额外 +1；达到 " + GameStartParameters.RiskThreshold
+                + " 触发危机伏击（移动消耗与风险结算在后续步骤接入）。\n";
+
+            desc += "可移动节点：";
+            var reachable = RegionMap.ReachableNext();
+            if (reachable.Count == 0)
+            {
+                desc += "无（已到达终点或地图未生成）";
+            }
+            else
+            {
+                for (int i = 0; i < reachable.Count; i++)
+                {
+                    var node = RegionMap.Nodes[reachable[i]];
+                    if (i > 0) desc += "、";
+                    desc += node.DisplayName + "（" + RegionMapNode.NodeTypeName(node.Type) + "）";
+                }
+            }
+
+            return desc;
         }
 
         private static string BuildCombatDescription()
