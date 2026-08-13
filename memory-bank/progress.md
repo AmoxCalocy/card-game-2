@@ -197,5 +197,25 @@
 - 说明：危机伏击的强制战斗触发留待节点内容接入（A2-19 起）；营地结算 -2 留待 A2-21；密林消耗 A2-23。
 - 验证：Test Runner 全绿（209 用例，含新增 9）；冒烟：移动粮 14→13 风险 0→1；无粮移动粮 0 不为负、疲劳 0→1、风险 1→4；Reset 全部归零。用户已确认四种粮食状态场景由自动化用例覆盖（测试直接 SetFoodForTest 构造，Play 模式无 UI 改粮入口）。
 
+## 2026-08-12 · A2-19 实现 20 个 MVP 事件（用户已验证）
+- 完成：
+  - `EventCatalog.cs`（新）— 20 个事件静态目录（配置表 §6）：`EventDef`（Id/DisplayName/Description/Region/Category/Options）、`EventOptionDef`（Label/ResultText/Condition/支付/条件引用/即时结果/招募/获得卡与遗物/移除卡/升级/状态移除/事件战斗与胜利奖励）、`EventOptionCondition` 8 种条件（PayResource/HasPartnerAndReputation/HasPartnerOrReputation/HasPartnerOrCard/HasPartnerOrPartner/ReputationAtLeast/HasRemoveableCard/HasPartner）、`EventStatusChoice` 3 种状态移除（FatigueSingle/DiseaseAll/DiseaseOrFatigueSingle）；草原 E01-E10、密林 E11-E20，每事件 2-3 个选项。
+  - `CampaignDeck.cs` — 初始牌组锁定（`IsInitialLockedCard`，不可被事件移除）、`HasRemoveableCard`/`RemoveableCards`（事件移除卡选项条件）、`UpgradedCards`+`UpgradeCard`（E07 升级标记，同一张卡只能升级一次）。
+  - `RunSession.cs` — 事件状态机：`CurrentEvent`/`PendingEventChoice`/`PendingEventOptionIndex`/`Relics`（遗物持有记录，效果 A2-22 接入）；`StartEventFromNode`（地图事件节点按种子抽取）/`StartEvent`（测试/节点进入）/`EventOptionBlockReason`（条件校验，返回禁用原因）/`ChooseEventOption`（支付→战斗或子选择或即时结算）/`ChooseEventCard`（移除/升级）/`ChooseEventStatusUnit`（疲劳/疾病移除）/`CancelEventChoice`/`ApplyPendingEventCombatRewards`（胜利额外奖励：财/建材/声望/卡/遗物/伙伴，仅结算一次）/`ClearPendingEventCombatRewards`（失败清除）；资源钳制方法（Food/Wealth/Reputation/Materials/Risk 均带边界，声望 0-100 等）；`PlayerDisease`（主角战役疾病）；`SyncPlayerFromCombat` 同步疲劳+疾病；`StartNewGame`/`EnterTestPage(Event)` 初始化战役牌组；测试辅助 `SetWealthForTest`/`SetReputationForTest`/`SetMaterialsForTest`/`SetPlayerFatigueForTest`/`SetPlayerDiseaseForTest`。
+  - `EnemyUnit.cs` — `CreateById`（EN01-EN10 工厂映射，事件战斗用）。
+  - `CombatManager.cs` — 胜利时调用 `RunSession.ApplyPendingEventCombatRewards()`；主角死亡（Defeat 分支）调用 `ClearPendingEventCombatRewards`。
+  - `GameUi.cs` — 新字段 `_eventOptionContainer`；事件页（标题/描述/资源显示）、`RefreshEventOptions`（选项按钮：支付标注、条件不满足置灰）、子选择渲染（移除卡/升级卡/单位列表含疾病疲劳）、`OnMapNodeClicked` 改走 `RunSession.TryMoveToNode`（修复 A2-18 UI 未接入）并在事件节点进入事件页；`BuildMapDescription` 显示真实资源（修复 A2-18 用常量显示）。
+  - 场景：`TestPage` 下新增 `EventOptions` 容器（VerticalLayoutGroup），`_eventOptionContainer` 已连接。
+  - `EventTests.cs`（新）— 57 个 EditMode 用例：目录完整性（20 个/ID 唯一/≥2 选项/草原 10+密林 10/引用可解析）、E01-E20 每个选项结算与条件不满足、事件战斗触发+胜利奖励（财/建材/卡/遗物/伙伴）、失败无奖励、子选择（移除卡/升级/单位状态）、已招募伙伴忠诚 +10、死亡伙伴禁用、资源钳制不为负、无效事件拒绝。
+- 修复：
+  - `FinishEvent` 置空 `CurrentEvent` 后仍用 `CurrentEvent.DisplayName` → NRE（三处，先存 evtName 再结算）。
+  - 事件战斗胜利奖励最初只走 `ApplyEventOptionEffects`（不含 VictoryBonus* 字段）→ 独立实现 `ApplyPendingEventCombatRewards` 应用胜利额外奖励。
+  - `StartEvent` 失败时未清空 `CurrentEvent`（测试入口残留事件）→ 失败置空。
+  - `EnterTestPage(Event)` 随机事件编号拼接错误（E0+10=E010）→ 特判 E10。
+  - 测试断言 E04 声望期望值错误（应为钳制后 0）。
+- 工程教训：对同一文件的多个 edit 并行调用可能互相覆盖（旧快照回写）——大文件修改后必须 grep 验证落盘再编译（本次 evtName/字段声明两次未落盘导致假编译通过）。
+- 说明：遗物仅记录持有（R01/R02 效果 A2-22 接入）；卡牌升级仅标记（升级效果后续步骤接入）；事件战斗按普通遭遇奖励+事件额外奖励结算。
+- 验证：Test Runner 全绿（266 用例，含新增 57）。
+
 ## 进行中
-- 下一步：A2-19 实现 20 个 MVP 事件（等待用户指示开始）。
+- 下一步：A2-20 接入财富、声望和建筑材料资源（等待用户指示开始）。

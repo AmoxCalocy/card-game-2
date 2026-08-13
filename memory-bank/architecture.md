@@ -39,4 +39,48 @@
 
 ## 地图系统（A2-17）
 - `RegionMap.cs` — 区域节点地图静态管理器：`RegionMapNode`（Id/Layer 1-4/Type/EnemyPoolIds/EventPoolIds/NextIndexes）+ `RegionMap`：`Generate(region, rng)`（草原 4 层：L1 战斗/事件/营地、L2 战斗/事件/精英、L3 战斗/事件/营地、L4 首领；层内顺序洗牌、层间 `ConnectLayers` 保证上下层入度/出度≥1、第三层全连首领、无回退）、`TryMoveTo(index)`（下一层/相连/未访问三重校验，失败 out reason 且状态不变，成功写 `RunRecord` 地图分支）、`ReachableNext()`（当前可移动节点，供 UI 高亮）、`CurrentNodeIndex`（-1=起点）/`CurrentLayer`/`RemainingLayers`/`Path`/`VisitedIndexes`、`Clear`。密林留待 A2-23。
-- `RegionMapTests.cs` — 13 个 EditMode 用例：10 固定种子结构/构成/池引用、BFS 可达首领、每节点出���≥1、无回退、第三层全连首领、同种子同图、起点仅限第一层、未连接/已访问/跨层拒绝、合法移动、完整路径到首领。
+- `RegionMapTests.cs` — 13 个 EditMode 用例：10 固定种子结构/构成/池引用、BFS 可达首领、每节点出度≥1、无回退、第三层全连首领、同种子同图、起点仅限第一层、未连接/已访问/跨层拒绝、合法移动、完整路径到首领。
+
+## 战斗系统
+- `CombatUnit.cs` — 战斗单位：`Id`/`DisplayName`/`MaxHp`/`CurrentHp`/`Armor`/`IsAlive`/`IsPlayerCharacter`；`TakeDamage`（优先扣护甲再扣血，返回实际伤害）、`Heal`、`Clone`（独立副本隔离原始数据）；工厂方法 `CreatePlayer`/`CreateCompanion`/`CreateEnemy`。`FocusFireExtra`（集火标记额外伤害）。
+- `CombatDeck.cs` — 战斗独立牌堆：`DrawPile`/`Hand`/`DiscardPile`/`ExhaustZone`；`InitFromCampaign`（复制+洗牌）、`DrawToHand`（空堆洗回/手牌上限）、`DiscardHand`（临时卡 `TEMP_` 前缀→消耗区，普通卡→弃牌堆）、`ExhaustFromHand`/`DiscardFromHand`、`Clone`。
+- `CombatManager.cs` — 战斗生命周期 + 回合结构 + 敌人行动：`Phase`/`TurnPhase`/`TurnNumber`/`Energy`（MaxEnergy=3 每回合重置）；`Morale`/`MoraleUsedThisTurn`/`Plunder`；`PendingBonusDraw`（下回合额外抽牌）/`CostReductionRemaining`（本回合减费）；`RevealEnemyIntents`（BeginPlayerTurn 揭示敌人意图供玩家规划）、`ExecuteEnemyActions`（攻击/全体攻击/防御/掠夺四类执行，行动前重验目标存活，无目标默认跳过；支持 `TargetsPlayer` 诱饵定向）、`PickDefaultTarget`（生命百分比最低，平局主角优先）、`PlayerCharacter()`（获取存活主角）；`CanPlayerAct`/`CanSpendEnergy`/`SpendEnergy`/`RefundEnergy`；`ForceDefeat`/`End`。
+- `CombatDeckTests.cs` — 13 个 EditMode 用例：副本独立/洗牌确定/同种子同序/弃牌堆洗回/两堆皆空/手牌上限/弃手牌/消耗/弃单张/Clone/临时卡隔离。
+- `CombatResolver.cs` — 目标选择与伤害结算：`ResolveTargets`（六种 TargetType，仅存活单位，无目标 out issue）、`ApplyDamage`（护甲吸收→生命→死亡→CheckEndCondition，返回可读结算文本；接入士气和集火标记）、`PlayCard(int handIndex, CombatUnit selectedTarget)`（完整出牌管线：费用校验→目标解析→移除手牌→`ApplyEffect` 分发 28 种效果→弃牌/消耗→结束检查）、`PlayTestCard`（已标记 Obsolete，剩余引用来自旧测试按钮）。
+- `CombatResolverTests.cs` — 18 个 EditMode 用例：目标范围/死亡排除/无目标报错/护甲恰好吸收/伤害多1/单体只伤一个/全体伤全部/批内击杀胜利/批内跳过死目标/能量不足/无目标退款。
+- `CombatStatus.cs` — 状态规则统一入口：上限常量（流血 5/士气 3/疾病 3/疲劳 3/护甲 30）、每层效果（疾病 -4 最大生命/疲劳 -5 护甲上限 -1 指令伤害/士气 +2 伤害）、施加叠加（钳上限、不作用于死亡单位、疾病钳当前生命、疲劳钳护甲）、移除、`TriggerTurnStartBleed`（真实伤害=层数，伤害后 -1，致死触发结束检查）、`TriggerTeamTurnStartBleed`。
+- `CombatStatusTests.cs` — 16 个 EditMode 用例：流血叠加/真实伤害/衰减/致死/死亡不施加/疾病上限钳制/疲劳上限钳制/士气加成重置/多状态共存顺序。
+- `CampaignDeck.cs` — 战役牌组（A2-16）：战斗外持久化卡牌集合；`AddCard`（≤30）/`RemoveCard`/`RemoveCardAt`（≥10）/`CloneCardList`；A2-19：`IsInitialLockedCard`（初始牌组锁定，不可被事件移除）/`HasRemoveableCard`/`RemoveableCards`（事件移除卡选项）/`UpgradedCards`+`UpgradeCard`（升级标记，同卡仅一次）。
+- `RewardResolver.cs` — 战斗奖励（A2-16）：按遭遇类型生成资源+卡牌选项；`PendingOptions`/`ClaimCard`（选一清空）/`SkipReward`/`Clear`。
+- `PartnerDef.cs` / `PartnerRoster.cs` — 伙伴系统（A2-15）：8 名伙伴静态定义 + 运行时状态（招募/上阵/HP/疾病/疲劳/忠诚度）；`BuildCombatTeam`（伙伴在前旅人第二位）/`SyncFromCombat`/`InitTestRoster`。
+- `CardCatalogTests.cs` — 27 个 EditMode 用例（A1-13）：目录完整性（6）/ 出牌基础流程（5）/ 各类卡牌效果（14）/ 边界与特殊机制（2）。
+- `PartnerRosterTests.cs` — 15 个 EditMode 用例（A2-15）：数据完整性/招募/上阵上限/未招募拒绝/死亡拒绝/BuildCombatTeam/SyncFromCombat/Clear。
+- `CampaignDeckTests.cs` — 12 个 EditMode 用例（A2-16）：牌组初始化/上下限/独立副本/奖励生成/领取/跳过。
+- `EnemyUnit.cs` — 敌人单位（继承 CombatUnit）：`EnemyIntentExec`（攻击/全体攻击/防御/掠夺 + 副作用 BleedStacks/DiseaseStacks + 诱饵标记 `TargetsPlayer`）+ `RollIntent`（种子驱动加权抽取）+ 10 种敌人工厂（EN01-EN10，按配置表 §5）；`Clone` 重写深拷贝意图。
+- `EnemyIntentTests.cs` — 12 个 EditMode 用例：同意图/零权重/首回合揭示/攻击/防御/掠夺/AOE/死敌跳过/无目标/默认目标选择/士气隔离。
+- `EncounterConfig.cs` — 9 组遭遇表（草原普通×2/精英/首领，密林普通×3/精英/首领，含标签/区域/类型）；`RunSession._testEncounterIndex` 翻页选择。
+
+## 事件系统（A2-19）
+- `EventCatalog.cs` — 20 个事件静态目录（配置表 §6，与 CardCatalog/EnemyUnit 同模式：代码内硬编码，可复现）：`EventDef`（Id/DisplayName/Description/Region/Category/Options）、`EventOptionDef`（条件/支付/即时结果/招募/获得卡与遗物/移除卡/升级/状态移除/事件战斗与胜利额外奖励）、`EventOptionCondition`（PayResource/HasPartner*/ReputationAtLeast/HasRemoveableCard 等 8 种）、`EventStatusChoice`（FatigueSingle/DiseaseAll/DiseaseOrFatigueSingle）；`Find(id)`。
+- 事件结算（RunSession 内）：`StartEventFromNode`（地图事件节点按种子抽取）/`StartEvent`（测试与节点进入，Event 状态幂等）/`EventOptionBlockReason`（条件校验返回禁用原因，供 UI 置灰）/`ChooseEventOption`（支付→战斗或子选择或即时结算）/`ChooseEventCard`（移除/升级子选择）/`ChooseEventStatusUnit`（单位状态移除）/`CancelEventChoice`/`ApplyPendingEventCombatRewards`（胜利额外奖励仅结算一次，由 CombatManager 胜利分支调用）/`ClearPendingEventCombatRewards`（失败清除，防残留）；`Relics` 遗物持有记录（效果 A2-22 接入）；`PlayerDisease` 主角战役疾病（SyncPlayerFromCombat 同步疲劳+疾病）。
+- 资源钳制：事件与移动结算统一用 `Clamp` 保证粮 0-30/财 0-999/声望 0-100/建材 0-99/风险 0-10 不为负；招募伙伴已招募→忠诚 +10、阵亡→选项禁用（配置表 §6 通用规则）。
+- `EventTests.cs` — 57 个 EditMode 用例：目录完整性/每选项结算/条件不满足/事件战斗胜利与失败/子选择/忠诚规则/钳制。
+
+## UI 结构（场景组件化 + Prefab 驱动）
+- `GameUi.cs` — 场景 UI 驱动：`[SerializeField]` 持有面板/HUD/标题/描述/按钮/`_battleView`/`_mapNodeContainer`/`_eventOptionContainer`；`ShowPage` 战斗中委托 `BattleView`；`ReturnToMenu()` 公开供 BattleView 调用；`Refresh` 同步刷新 BattleView；`OnMapNodeClicked` 走 `RunSession.TryMoveToNode` 并在事件节点进入事件页；`RefreshEventOptions` 动态渲染事件选项（条件不满足置灰）与子选择列表（移除/升级卡、单位状态）。
+- `BattleView.cs` — 战斗界面独立控制器（A1-14）：从 `_battlePagePrefab` 运行时实例化 BattlePage；管理手牌/单位卡片生命周期；处理出牌/选目标/结束回合/返回菜单交互。子组件通过 `ResolveRefs()` 自动解析。
+- HUD（TestHud，尺寸 680×300）：7 行文本——随机种子 / 当前状态 / 当前配置 / 最近一次规则结算 / 最近状态切换（最近 3 条）/ 内容校验状态（OK 或 N 个问题+首个）/ 本局记录（N 条+最新类别 #序号）。
+- Canvas：ScreenSpaceOverlay + CanvasScaler（1920×1080，match 0.5）。**子对象顺序即渲染顺序**：MainMenu → BattlePage(运行时) → TestPage → TestHud（HUD 在顶层）。
+- MainMenu：ScrollRect + Viewport(RectMask2D) + Content(VerticalLayoutGroup)，增删按钮自动重排。
+- TestPage：旧版战斗测试页（A1-14 后战斗中隐藏，BattleView 替代）。
+- EventSystem：EventSystem + StandaloneInputModule（Legacy Input）。
+
+## 战斗界面 Prefab（A1-14）
+- `Assets/Prefabs/BattlePage.prefab` — 五区块布局（全部 TMP）：TopBar（TurnInfo/Energy/Morale/Plunder/EndTurnBtn）/ MainArea（TeamPanel/EnemyPanel/RightPanel+ReturnBtn）/ BottomBar（DrawPile/HandCards/DiscardPile）。
+- `Assets/Prefabs/HandCard.prefab` — 手牌卡片（TMP）：TopBar(类型色)/ CostRow(Cost/Name) / Effect。
+- `Assets/Prefabs/UnitCard.prefab` — 队伍单位卡片（TMP）：TopBar / Name / HP / Status / Intent。
+- `Assets/Prefabs/EnemyCard.prefab` — 敌人卡片（TMP，结构同 UnitCard，独立样式）。
+
+## 事件流
+- `RunSession.Changed` / `GameFlow.Changed` → `GameUi.Refresh()`（HUD：种子/状态/配置/最近结算/最近状态切换）；`GameConfigProvider.Changed` → `GameUi.RefreshConfigUi()`（显隐控制）。
+- `GameBootstrap`（BeforeSceneLoad）→ `GameConfigProvider.Initialize()` + `ContentRegistry.LoadAll()` + `RunSession.Reset()` → 场景 `GameUi.Awake` 接管 UI。

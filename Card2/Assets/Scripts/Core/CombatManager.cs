@@ -387,6 +387,7 @@ namespace OneJourney.Core
                     Phase = CombatPhase.Defeat;
                     CurrentTurnPhase = TurnPhase.None;
                     Energy = 0;
+                    RunSession.ClearPendingEventCombatRewards();
                     RunRecord.Log(RecordCategory.General, "主角死亡，战斗失败");
                     return "defeat";
                 }
@@ -412,6 +413,9 @@ namespace OneJourney.Core
                 RunRecord.Log(RecordCategory.General,
                     "奖励已生成：" + RewardResolver.PendingOptions.Count + " 张卡牌可选，财富 "
                     + RewardResolver.PendingWealth + " 粮食 " + RewardResolver.PendingFood);
+
+                // A2-19：事件战斗胜利额外奖励（仅结算一次）
+                RunSession.ApplyPendingEventCombatRewards();
 
                 return "victory";
             }

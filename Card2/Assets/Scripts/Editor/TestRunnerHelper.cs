@@ -42,6 +42,8 @@ namespace OneJourney.Tests.EditMode
                 w.WriteLine(new string(' ', depth * 2) + "FAIL " + r.FullName);
                 if (!string.IsNullOrEmpty(r.Message))
                     w.WriteLine(new string(' ', depth * 2 + 2) + "MSG: " + r.Message.Replace("\n", " | "));
+                if (!string.IsNullOrEmpty(r.StackTrace))
+                    w.WriteLine(new string(' ', depth * 2 + 2) + "STACK: " + r.StackTrace.Replace("\n", " | "));
             }
             foreach (var child in r.Children) WriteResult(w, child, depth + 1);
         }

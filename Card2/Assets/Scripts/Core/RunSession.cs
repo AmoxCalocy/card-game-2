@@ -33,6 +33,16 @@ namespace OneJourney.Core
         }
     }
 
+    /// <summary>事件选项的待定子选择类型（A2-19：移除卡 / 升级 / 状态移除）。</summary>
+    public enum EventOptionChoiceKind
+    {
+        None = 0,
+        RemoveCard = 1,               // 从牌组选择一张可移除卡
+        UpgradeCard = 2,              // 从牌组选择一张卡升级（E07）
+        StatusFatigue = 3,            // 选择 1 名存活单位移除疲劳（E10）
+        StatusDiseaseOrFatigue = 4    // 选择 1 名存活单位移除疾病或疲劳（E14）
+    }
+
     public static class RunSession
     {
         private const int MaxRecordCount = 20;
@@ -53,7 +63,24 @@ namespace OneJourney.Core
         public static int Materials { get; private set; }
         public static int Risk { get; private set; }              // 当前区域风险 0-10
         public static int PlayerFatigue { get; private set; }     // 主角战役疲劳（粮食不足惩罚，0-3）
+        public static int PlayerDisease { get; private set; }     // 主角战役疾病（A2-19，事件/战斗同步）
         public static bool AmbushPending { get; private set; }    // 危机伏击待触发标记（风险达阈值时置位）
+
+        // ---- 事件（A2-19）----
+        /// <summary>当前进行中的事件；非事件状态为 null。</summary>
+        public static EventDef CurrentEvent { get; private set; }
+
+        /// <summary>事件选项待定子选择类型（None 表示无待定选择）。</summary>
+        public static EventOptionChoiceKind PendingEventChoice { get; private set; }
+
+        /// <summary>待定子选择对应的选项索引（PendingEventChoice != None 时有效）。</summary>
+        public static int PendingEventOptionIndex { get; private set; }
+
+        /// <summary>本局已持有的遗物 ID（去重，A2-19 事件授予；遗物效果 A2-22 接入）。</summary>
+        public static readonly List<string> Relics = new List<string>();
+
+        /// <summary>事件战斗胜利额外奖励（触发事件战斗时暂存，胜利后结算一次）。</summary>
+        private static EventOptionDef _pendingEventCombatReward;
 
         public static GameState CurrentState => GameFlow.CurrentState;
 
@@ -97,6 +124,8 @@ namespace OneJourney.Core
             RunRecord.Clear();
             RecordsList.Clear();
             InitCampaignResources();
+            if (CampaignDeck == null)
+                CampaignDeck = new CampaignDeck(GameStartParameters.StartingDeck);
 
             bool mapOk = RegionMap.Generate(ContentRegion.Plains, Random);
             RecordResolution(
@@ -138,6 +167,46 @@ namespace OneJourney.Core
                 RegionMap.Generate(ContentRegion.Plains, Random);
                 RecordResolution("地图初始化", "草原地图已生成", RegionMap.Nodes.Count + " 个节点 / 4 层");
             }
+            else if (page == GameState.Event)
+            {
+                // 测试入口：从 E01 开始，可用「上一组/下一组」翻页逐个查看 E01-E20
+                if (CampaignDeck == null)
+                    CampaignDeck = new CampaignDeck(GameStartParameters.StartingDeck);
+                SetTestEvent(_testEventIndex);
+                RecordResolution("事件初始化", "测试入口进入事件", CurrentEvent != null ? CurrentEvent.Id : "无");
+            }
+        }
+
+        private static int _testEventIndex;
+
+        /// <summary>设置测试入口当前事件（按 EventCatalog 顺序，索引模 20）。</summary>
+        private static void SetTestEvent(int index)
+        {
+            int i = ((index % EventCatalog.All.Length) + EventCatalog.All.Length) % EventCatalog.All.Length;
+            _testEventIndex = i;
+            var evt = EventCatalog.All[i];
+            CurrentEvent = evt;
+            PendingEventChoice = EventOptionChoiceKind.None;
+            PendingEventOptionIndex = -1;
+            RunRecord.Log(RecordCategory.EventChoice, "进入事件 " + evt.DisplayName + "（" + evt.Id + "）");
+        }
+
+        /// <summary>事件测试入口翻页：下一个事件（E01-E20 循环）。</summary>
+        public static void NextEvent()
+        {
+            SetTestEvent(_testEventIndex + 1);
+        }
+
+        /// <summary>事件测试入口翻页：上一个事件（E01-E20 循环）。</summary>
+        public static void PrevEvent()
+        {
+            SetTestEvent(_testEventIndex - 1);
+        }
+
+        /// <summary>当前测试事件名（供测试页显示）。</summary>
+        public static string CurrentEventLabel()
+        {
+            return CurrentEvent != null ? CurrentEvent.DisplayName + "（" + CurrentEvent.Id + "）" : "无";
         }
 
         private static int _testEncounterIndex;
@@ -203,13 +272,21 @@ namespace OneJourney.Core
             PartnerRoster.Clear();
             RewardResolver.Clear();
             RegionMap.Clear();
+            CampaignDeck = null; // 下一局重建初始牌组（A2-19：事件获得/移除卡后测试与重开隔离）
             Food = 0;
             Wealth = 0;
             Reputation = 0;
             Materials = 0;
             Risk = 0;
             PlayerFatigue = 0;
+            PlayerDisease = 0;
             AmbushPending = false;
+            CurrentEvent = null;
+            PendingEventChoice = EventOptionChoiceKind.None;
+            PendingEventOptionIndex = -1;
+            _testEventIndex = 0;
+            Relics.Clear();
+            _pendingEventCombatReward = null;
             Changed?.Invoke();
         }
 
@@ -222,7 +299,493 @@ namespace OneJourney.Core
             Materials = GameStartParameters.StartBuildingMaterials;
             Risk = 0;
             PlayerFatigue = 0;
+            PlayerDisease = 0;
             AmbushPending = false;
+            CurrentEvent = null;
+            PendingEventChoice = EventOptionChoiceKind.None;
+            PendingEventOptionIndex = -1;
+            Relics.Clear();
+            _pendingEventCombatReward = null;
+        }
+
+        // ---- 事件（A2-19，配置表 §6）----
+
+        /// <summary>从地图事件节点进入事件：从节点事件池按种子抽取一个事件并进入 Event 状态。</summary>
+        public static bool StartEventFromNode(RegionMapNode node)
+        {
+            if (node == null || node.EventPoolIds == null || node.EventPoolIds.Length == 0) return false;
+            string eventId = node.EventPoolIds[Random.Next(node.EventPoolIds.Length)];
+            return StartEvent(eventId);
+        }
+
+        /// <summary>进入指定事件（Event 状态）。返回是否成功。</summary>
+        public static bool StartEvent(string eventId)
+        {
+            var evt = EventCatalog.Find(eventId);
+            if (evt == null)
+            {
+                CurrentEvent = null;
+                RecordResolution("事件", "进入事件失败", "找不到事件：" + eventId);
+                return false;
+            }
+
+            // 已在事件状态（测试入口直接设置）时跳过转移
+            if (GameFlow.CurrentState != GameState.Event
+                && !GameFlow.TryTransition(GameState.Event, "进入事件：" + evt.DisplayName))
+            {
+                return false;
+            }
+
+            CurrentEvent = evt;
+            PendingEventChoice = EventOptionChoiceKind.None;
+            PendingEventOptionIndex = -1;
+            RunRecord.Log(RecordCategory.EventChoice, "进入事件 " + evt.DisplayName + "（" + evt.Id + "）");
+            return true;
+        }
+
+        /// <summary>当前事件选项是否可选中（条件检查，返回 null 表示可选中，否则返回原因）。</summary>
+        public static string EventOptionBlockReason(EventOptionDef opt)
+        {
+            if (opt == null) return "选项不存在";
+
+            // 通用规则（配置表 §6）：招募目标已死亡/已离队时招募选项禁用
+            if (!string.IsNullOrEmpty(opt.RecruitPartnerId))
+            {
+                var recruit = PartnerRoster.Find(opt.RecruitPartnerId);
+                if (recruit == null) return "伙伴不存在：" + opt.RecruitPartnerId;
+                if (!recruit.IsAlive) return recruit.Def.DisplayName + " 已阵亡，无法招募";
+            }
+
+            switch (opt.Condition)
+            {
+                case EventOptionCondition.PayResource:
+                    if (Food < opt.CostFood) return "粮食不足（需要 " + opt.CostFood + "，当前 " + Food + "）";
+                    if (Wealth < opt.CostWealth) return "财富不足（需要 " + opt.CostWealth + "，当前 " + Wealth + "）";
+                    if (Reputation < opt.CostReputation) return "声望不足（需要 " + opt.CostReputation + "，当前 " + Reputation + "）";
+                    return null;
+
+                case EventOptionCondition.HasPartner:
+                    return IsPartnerAvailable(opt.RequirePartnerId) ? null : PartnerUnavailableReason(opt.RequirePartnerId);
+
+                case EventOptionCondition.HasPartnerAndReputation:
+                    if (Reputation < opt.RequireReputation) return "声望不足（需要 " + opt.RequireReputation + "）";
+                    return IsPartnerAvailable(opt.RequirePartnerId) ? null : PartnerUnavailableReason(opt.RequirePartnerId);
+
+                case EventOptionCondition.HasPartnerOrReputation:
+                    if (Reputation >= opt.RequireReputation) return null;
+                    return IsPartnerAvailable(opt.RequirePartnerId) ? null : PartnerUnavailableReason(opt.RequirePartnerId);
+
+                case EventOptionCondition.HasPartnerOrCard:
+                    if (HasCard(opt.RequireCardId)) return null;
+                    return IsPartnerAvailable(opt.RequirePartnerId) ? null
+                        : "需要已招募 " + PartnerName(opt.RequirePartnerId) + " 或牌组拥有 " + CardName(opt.RequireCardId);
+
+                case EventOptionCondition.HasPartnerOrPartner:
+                    if (IsPartnerAvailable(opt.RequirePartnerId)) return null;
+                    if (!string.IsNullOrEmpty(opt.RequirePartnerId2) && IsPartnerAvailable(opt.RequirePartnerId2)) return null;
+                    return "需要已招募 " + PartnerName(opt.RequirePartnerId)
+                        + (string.IsNullOrEmpty(opt.RequirePartnerId2) ? "" : " 或 " + PartnerName(opt.RequirePartnerId2));
+
+                case EventOptionCondition.ReputationAtLeast:
+                    return Reputation >= opt.RequireReputation ? null : "声望不足（需要 " + opt.RequireReputation + "）";
+
+                case EventOptionCondition.HasRemoveableCard:
+                    return CampaignDeck != null && CampaignDeck.HasRemoveableCard() ? null : "没有可移除的卡牌";
+            }
+
+            return null;
+        }
+
+        /// <summary>选择事件选项：条件校验→支付→即时结果→待定子选择或事件战斗。</summary>
+        public static string ChooseEventOption(int optionIndex)
+        {
+            if (CurrentEvent == null) return "当前没有进行中的事件";
+            if (optionIndex < 0 || optionIndex >= CurrentEvent.Options.Length) return "选项索引无效";
+
+            var opt = CurrentEvent.Options[optionIndex];
+            string block = EventOptionBlockReason(opt);
+            if (block != null) return "选项不可用：" + block;
+
+            PendingEventChoice = EventOptionChoiceKind.None;
+            PendingEventOptionIndex = -1;
+
+            // 支付资源
+            string payText = "";
+            if (opt.CostFood > 0) { Food -= opt.CostFood; payText += "粮食 -" + opt.CostFood + " "; }
+            if (opt.CostWealth > 0) { Wealth -= opt.CostWealth; payText += "财富 -" + opt.CostWealth + " "; }
+            if (opt.CostReputation > 0) { Reputation -= opt.CostReputation; payText += "声望 -" + opt.CostReputation + " "; }
+
+            // 触发事件战斗
+            if (opt.CombatEnemyIds != null && opt.CombatEnemyIds.Length > 0)
+            {
+                _pendingEventCombatReward = opt;
+                StartEventCombat(opt);
+                RecordResolution("事件", CurrentEvent.DisplayName + "：" + opt.Label,
+                    (payText.Length > 0 ? payText.Trim() + "；" : "") + "触发战斗：" + opt.CombatLabel);
+                return "战斗开始：" + opt.CombatLabel + "（胜利后结算事件奖励）";
+            }
+
+            // 需要子选择：先记录待定，不立即应用其余结果
+            var choice = NeedChoice(opt);
+            if (choice != EventOptionChoiceKind.None)
+            {
+                PendingEventChoice = choice;
+                PendingEventOptionIndex = optionIndex;
+                RecordResolution("事件", CurrentEvent.DisplayName + "：" + opt.Label,
+                    (payText.Length > 0 ? payText.Trim() + "；" : "") + "需要选择");
+                return ChoicePrompt(choice);
+            }
+
+            // 立即结算（含全队状态移除）
+            string evtName = CurrentEvent.DisplayName;
+            string result = ApplyEventOptionEffects(opt, null, null);
+            FinishEvent(opt);
+            RecordResolution("事件", evtName + "：" + opt.Label,
+                (payText.Length > 0 ? payText.Trim() + "；" : "") + result);
+            return result;
+        }
+
+        /// <summary>完成事件子选择：移除卡 / 升级卡。</summary>
+        public static string ChooseEventCard(string cardId)
+        {
+            if (CurrentEvent == null || PendingEventChoice == EventOptionChoiceKind.None)
+                return "当前没有待定的卡牌选择";
+            if (PendingEventOptionIndex < 0 || PendingEventOptionIndex >= CurrentEvent.Options.Length)
+                return "事件选项索引无效";
+
+            var opt = CurrentEvent.Options[PendingEventOptionIndex];
+            if (CampaignDeck == null) return "战役牌组未初始化";
+
+            if (PendingEventChoice == EventOptionChoiceKind.RemoveCard)
+            {
+                if (CampaignDeck.IsInitialLockedCard(cardId) || !CampaignDeck.Cards.Contains(cardId))
+                    return "该卡不可移除";
+                if (!CampaignDeck.RemoveCard(cardId)) return "牌组已达下限，不能移除";
+            }
+            else if (PendingEventChoice == EventOptionChoiceKind.UpgradeCard)
+            {
+                if (!CampaignDeck.UpgradeCard(cardId)) return "该卡不能升级（不在牌组或已升级）";
+            }
+            else
+            {
+                return "当前待定选择不是卡牌";
+            }
+
+            string result = ApplyEventOptionEffects(opt, cardId, null);
+            string detail = PendingEventChoice == EventOptionChoiceKind.RemoveCard
+                ? "移除卡 " + cardId + "（" + CardName(cardId) + "）；" + result
+                : "升级卡 " + CardName(cardId) + "；" + result;
+            string evtName = CurrentEvent.DisplayName;
+            PendingEventChoice = EventOptionChoiceKind.None;
+            PendingEventOptionIndex = -1;
+            FinishEvent(opt);
+            RecordResolution("事件", evtName + "：" + opt.Label, detail);
+            return detail;
+        }
+
+        /// <summary>完成事件子选择：选择存活单位移除疲劳/疾病（E10/E14）。</summary>
+        public static string ChooseEventStatusUnit(string unitId, bool removeDisease)
+        {
+            if (CurrentEvent == null || PendingEventChoice == EventOptionChoiceKind.None)
+                return "当前没有待定的单位选择";
+            if (PendingEventOptionIndex < 0 || PendingEventOptionIndex >= CurrentEvent.Options.Length)
+                return "事件选项索引无效";
+
+            var opt = CurrentEvent.Options[PendingEventOptionIndex];
+            string targetName;
+
+            if (unitId == "PLAYER")
+            {
+                if (removeDisease)
+                {
+                    if (PlayerDisease <= 0) return "主角没有疾病";
+                    PlayerDisease--;
+                    targetName = "主角";
+                }
+                else
+                {
+                    if (PlayerFatigue <= 0) return "主角没有疲劳";
+                    PlayerFatigue--;
+                    targetName = "主角";
+                }
+            }
+            else
+            {
+                var p = PartnerRoster.Find(unitId);
+                if (p == null || !p.IsRecruited || !p.IsAlive) return "该单位不可用";
+                if (removeDisease)
+                {
+                    if (p.Disease <= 0) return p.Def.DisplayName + " 没有疾病";
+                    p.Disease--;
+                }
+                else
+                {
+                    if (p.Fatigue <= 0) return p.Def.DisplayName + " 没有疲劳";
+                    p.Fatigue--;
+                }
+
+                targetName = p.Def.DisplayName;
+            }
+
+            string result = ApplyEventOptionEffects(opt, null, unitId);
+            string detail = targetName + " 移除" + (removeDisease ? "疾病" : "疲劳") + "；" + result;
+            string evtName = CurrentEvent.DisplayName;
+            PendingEventChoice = EventOptionChoiceKind.None;
+            PendingEventOptionIndex = -1;
+            FinishEvent(opt);
+            RecordResolution("事件", evtName + "：" + opt.Label, detail);
+            return detail;
+        }
+
+        /// <summary>取消事件子选择（无可选项时由界面调用，结算记录后回到地图）。</summary>
+        public static void CancelEventChoice()
+        {
+            if (CurrentEvent == null || PendingEventChoice == EventOptionChoiceKind.None) return;
+            PendingEventChoice = EventOptionChoiceKind.None;
+            PendingEventOptionIndex = -1;
+            CurrentEvent = null;
+            if (RegionMap.IsGenerated)
+            {
+                GameFlow.TryTransition(GameState.Map, "事件无可选项，返回地图");
+            }
+        }
+
+        /// <summary>事件战斗胜利后结算额外奖励（由 CombatManager 胜利时调用，仅结算一次）。</summary>
+        public static void ApplyPendingEventCombatRewards()
+        {
+            var opt = _pendingEventCombatReward;
+            _pendingEventCombatReward = null;
+            if (opt == null) return;
+
+            var effects = new System.Collections.Generic.List<string>();
+
+            if (opt.VictoryBonusWealth != 0)
+            {
+                Wealth = Clamp(Wealth + opt.VictoryBonusWealth, 0, GameStartParameters.MaxWealth);
+                effects.Add("财富 " + Signed(opt.VictoryBonusWealth) + "（当前 " + Wealth + "）");
+            }
+
+            if (opt.VictoryBonusMaterial != 0)
+            {
+                Materials = Clamp(Materials + opt.VictoryBonusMaterial, 0, GameStartParameters.MaxBuildingMaterials);
+                effects.Add("建材 " + Signed(opt.VictoryBonusMaterial) + "（当前 " + Materials + "）");
+            }
+
+            if (opt.VictoryBonusReputation != 0)
+            {
+                Reputation = Clamp(Reputation + opt.VictoryBonusReputation, 0, GameStartParameters.MaxReputation);
+                effects.Add("声望 " + Signed(opt.VictoryBonusReputation) + "（当前 " + Reputation + "）");
+            }
+
+            if (!string.IsNullOrEmpty(opt.VictoryBonusCardId))
+            {
+                bool added = CampaignDeck != null && CampaignDeck.AddCard(opt.VictoryBonusCardId);
+                effects.Add("获得卡 " + CardName(opt.VictoryBonusCardId) + (added ? "（已加入牌组）" : "（牌组已满）"));
+            }
+
+            if (!string.IsNullOrEmpty(opt.VictoryBonusRelicId) && !Relics.Contains(opt.VictoryBonusRelicId))
+            {
+                Relics.Add(opt.VictoryBonusRelicId);
+                effects.Add("获得遗物 " + opt.VictoryBonusRelicId);
+            }
+
+            if (!string.IsNullOrEmpty(opt.VictoryBonusPartnerId))
+            {
+                var p = PartnerRoster.Find(opt.VictoryBonusPartnerId);
+                if (p != null)
+                {
+                    if (p.IsRecruited)
+                    {
+                        p.Loyalty = System.Math.Min(100, p.Loyalty + 10);
+                        effects.Add(p.Def.DisplayName + " 忠诚度 +10");
+                    }
+                    else
+                    {
+                        PartnerRoster.Recruit(opt.VictoryBonusPartnerId);
+                        effects.Add("招募 " + p.Def.DisplayName);
+                    }
+                }
+            }
+
+            CurrentEvent = null;
+            string result = effects.Count > 0 ? string.Join("；", effects) : opt.ResultText;
+            RecordResolution("事件", "事件战斗胜利", result);
+        }
+
+        /// <summary>清除待结算的事件战斗奖励（战斗失败时调用，避免残留到下一场战斗）。</summary>
+        public static void ClearPendingEventCombatRewards()
+        {
+            _pendingEventCombatReward = null;
+        }
+
+        // === 事件内部 ===
+
+        private static bool IsPartnerAvailable(string partnerId)
+        {
+            if (string.IsNullOrEmpty(partnerId)) return false;
+            var p = PartnerRoster.Find(partnerId);
+            return p != null && p.IsRecruited && p.IsAlive;
+        }
+
+        private static string PartnerUnavailableReason(string partnerId)
+        {
+            var p = PartnerRoster.Find(partnerId);
+            if (p == null) return "伙伴不存在：" + partnerId;
+            if (!p.IsRecruited) return "需要已招募 " + p.Def.DisplayName;
+            if (!p.IsAlive) return p.Def.DisplayName + " 已阵亡";
+            return p.Def.DisplayName + " 不可用";
+        }
+
+        private static string PartnerName(string partnerId)
+        {
+            var p = PartnerRoster.Find(partnerId);
+            return p != null ? p.Def.DisplayName : partnerId;
+        }
+
+        private static string CardName(string cardId)
+        {
+            var c = CardCatalog.Find(cardId);
+            return c != null ? c.DisplayName : cardId;
+        }
+
+        private static bool HasCard(string cardId)
+        {
+            return CampaignDeck != null && CampaignDeck.Cards.Contains(cardId);
+        }
+
+        /// <summary>选项是否需要玩家子选择。</summary>
+        private static EventOptionChoiceKind NeedChoice(EventOptionDef opt)
+        {
+            if (opt.RemoveCard) return EventOptionChoiceKind.RemoveCard;
+            if (opt.UpgradeCard) return EventOptionChoiceKind.UpgradeCard;
+            switch (opt.StatusChoice)
+            {
+                case EventStatusChoice.FatigueSingle: return EventOptionChoiceKind.StatusFatigue;
+                case EventStatusChoice.DiseaseOrFatigueSingle: return EventOptionChoiceKind.StatusDiseaseOrFatigue;
+            }
+
+            return EventOptionChoiceKind.None;
+        }
+
+        private static string ChoicePrompt(EventOptionChoiceKind choice)
+        {
+            switch (choice)
+            {
+                case EventOptionChoiceKind.RemoveCard: return "请选择一张要移除的卡牌";
+                case EventOptionChoiceKind.UpgradeCard: return "请选择一张要升级的卡牌";
+                case EventOptionChoiceKind.StatusFatigue: return "请选择一名存活单位移除疲劳";
+                case EventOptionChoiceKind.StatusDiseaseOrFatigue: return "请选择一名存活单位移除疾病或疲劳";
+                default: return "请做出选择";
+            }
+        }
+
+        /// <summary>应用选项即时结果（资源/风险/招募/获得卡/遗物/全队状态）。</summary>
+        private static string ApplyEventOptionEffects(EventOptionDef opt, string removedCardId, string statusUnitId)
+        {
+            var effects = new System.Collections.Generic.List<string>();
+
+            if (opt.FoodDelta != 0) { Food = Clamp(Food + opt.FoodDelta, 0, GameStartParameters.MaxFood); effects.Add("粮食 " + Signed(opt.FoodDelta) + "（当前 " + Food + "）"); }
+            if (opt.WealthDelta != 0) { Wealth = Clamp(Wealth + opt.WealthDelta, 0, GameStartParameters.MaxWealth); effects.Add("财富 " + Signed(opt.WealthDelta) + "（当前 " + Wealth + "）"); }
+            if (opt.ReputationDelta != 0) { Reputation = Clamp(Reputation + opt.ReputationDelta, 0, GameStartParameters.MaxReputation); effects.Add("声望 " + Signed(opt.ReputationDelta) + "（当前 " + Reputation + "）"); }
+            if (opt.MaterialDelta != 0) { Materials = Clamp(Materials + opt.MaterialDelta, 0, GameStartParameters.MaxBuildingMaterials); effects.Add("建材 " + Signed(opt.MaterialDelta) + "（当前 " + Materials + "）"); }
+            if (opt.RiskDelta != 0) { Risk = Clamp(Risk + opt.RiskDelta, 0, GameStartParameters.RiskThreshold); effects.Add("风险 " + Signed(opt.RiskDelta) + "（当前 " + Risk + "）"); }
+
+            if (!string.IsNullOrEmpty(opt.RecruitPartnerId))
+            {
+                var p = PartnerRoster.Find(opt.RecruitPartnerId);
+                if (p != null)
+                {
+                    if (p.IsRecruited)
+                    {
+                        // 已招募：忠诚度 +10（配置表 §6 通用规则）
+                        p.Loyalty = System.Math.Min(100, p.Loyalty + 10);
+                        effects.Add(p.Def.DisplayName + " 忠诚度 +10（当前 " + p.Loyalty + "）");
+                    }
+                    else
+                    {
+                        PartnerRoster.Recruit(opt.RecruitPartnerId);
+                        if (opt.RecruitLoyalty >= 0) p.Loyalty = opt.RecruitLoyalty;
+                        effects.Add("招募 " + p.Def.DisplayName);
+                    }
+                }
+            }
+
+            if (!string.IsNullOrEmpty(opt.GrantCardId))
+            {
+                bool added = CampaignDeck != null && CampaignDeck.AddCard(opt.GrantCardId);
+                effects.Add("获得卡 " + CardName(opt.GrantCardId) + (added ? "（已加入牌组）" : "（牌组已满，未加入）"));
+            }
+
+            if (!string.IsNullOrEmpty(opt.GrantRelicId) && !Relics.Contains(opt.GrantRelicId))
+            {
+                Relics.Add(opt.GrantRelicId);
+                effects.Add("获得遗物 " + opt.GrantRelicId);
+            }
+
+            // 全队状态移除（E11 救治）
+            if (opt.StatusChoice == EventStatusChoice.DiseaseAll)
+            {
+                if (PlayerDisease > 0) { PlayerDisease--; effects.Add("主角 移除疾病"); }
+                foreach (var p in PartnerRoster.All)
+                {
+                    if (p.IsRecruited && p.IsAlive && p.Disease > 0)
+                    {
+                        p.Disease--;
+                        effects.Add(p.Def.DisplayName + " 移除疾病");
+                    }
+                }
+            }
+
+            if (!string.IsNullOrEmpty(opt.ResultText) && effects.Count == 0)
+            {
+                effects.Add(opt.ResultText);
+            }
+
+            return string.Join("；", effects);
+        }
+
+        /// <summary>事件结算完成：回到地图（若地图存在）。</summary>
+        private static void FinishEvent(EventOptionDef opt)
+        {
+            string evtName = CurrentEvent != null ? CurrentEvent.DisplayName : "事件";
+            CurrentEvent = null;
+            RunRecord.Log(RecordCategory.EventChoice, "事件 " + evtName + " 结算完成");
+            if (RegionMap.IsGenerated)
+            {
+                GameFlow.TryTransition(GameState.Map, "事件结算完成，返回地图");
+            }
+        }
+
+        private static void StartEventCombat(EventOptionDef opt)
+        {
+            // 使用当前上阵队伍；无上阵伙伴时初始化测试队伍保证可战
+            if (PartnerRoster.ActiveCount == 0) PartnerRoster.InitTestRoster();
+            var player = CombatUnit.CreatePlayer(45, 6);
+            var team = PartnerRoster.BuildCombatTeam(player);
+
+            var enemies = new System.Collections.Generic.List<CombatUnit>();
+            foreach (var id in opt.CombatEnemyIds)
+            {
+                var e = EnemyUnit.CreateById(id);
+                if (e != null) enemies.Add(e);
+            }
+
+            if (CampaignDeck == null)
+                CampaignDeck = new CampaignDeck(GameStartParameters.StartingDeck);
+            var deck = CampaignDeck.CloneCardList();
+            CombatManager.Init(team, enemies, deck);
+            CombatManager.CurrentEncounterType = EncounterConfig.EncounterType.Normal;
+            GameFlow.TryTransition(GameState.Combat, "事件触发战斗：" + opt.CombatLabel);
+        }
+
+        private static int Clamp(int v, int min, int max)
+        {
+            return v < min ? min : (v > max ? max : v);
+        }
+
+        private static string Signed(int v)
+        {
+            return v > 0 ? "+" + v : v.ToString();
         }
 
         /// <summary>
@@ -308,6 +871,31 @@ namespace OneJourney.Core
         public static void SetRiskForTest(int value)
         {
             Risk = System.Math.Clamp(value, 0, GameStartParameters.RiskThreshold);
+        }
+
+        public static void SetWealthForTest(int value)
+        {
+            Wealth = System.Math.Clamp(value, 0, GameStartParameters.MaxWealth);
+        }
+
+        public static void SetReputationForTest(int value)
+        {
+            Reputation = System.Math.Clamp(value, 0, GameStartParameters.MaxReputation);
+        }
+
+        public static void SetMaterialsForTest(int value)
+        {
+            Materials = System.Math.Clamp(value, 0, GameStartParameters.MaxBuildingMaterials);
+        }
+
+        public static void SetPlayerFatigueForTest(int value)
+        {
+            PlayerFatigue = System.Math.Clamp(value, 0, CombatStatus.MaxFatigue);
+        }
+
+        public static void SetPlayerDiseaseForTest(int value)
+        {
+            PlayerDisease = System.Math.Clamp(value, 0, CombatStatus.MaxDisease);
         }
 
         public static string DisplayName(GameState state)

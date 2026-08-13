@@ -102,6 +102,25 @@ namespace OneJourney.Core
             return clone;
         }
 
+        /// <summary>按配置表 ID 创建敌人（EN01-EN10）；未知 ID 返回 null。</summary>
+        public static EnemyUnit CreateById(string id)
+        {
+            switch (id)
+            {
+                case "EN01": return CreateBandit();
+                case "EN02": return CreateHound();
+                case "EN03": return CreateScavenger();
+                case "EN04": return CreateHornBeast();
+                case "EN05": return CreatePlainsBoss();
+                case "EN06": return CreateSpider();
+                case "EN07": return CreateFungusBeast();
+                case "EN08": return CreateForestBandit();
+                case "EN09": return CreateBoar();
+                case "EN10": return CreateJungleBoss();
+                default: return null;
+            }
+        }
+
         /// <summary>路匪（EN01，草原普通）：砍击 6 伤(50)、勒索 4 伤+1 掠夺(30)、架盾 6 甲(20)。</summary>
         public static EnemyUnit CreateBandit()
         {
