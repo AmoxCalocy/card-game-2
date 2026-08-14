@@ -281,13 +281,18 @@ namespace OneJourney.Core
             if (_diseaseButton != null) _diseaseButton.gameObject.SetActive(isCombat && CombatManager.CanPlayerAct);
             if (_fatigueButton != null) _fatigueButton.gameObject.SetActive(isCombat && CombatManager.CanPlayerAct);
             if (_moraleButton != null) _moraleButton.gameObject.SetActive(isCombat && CombatManager.CanPlayerAct);
-            bool canSwitchEncounter = RunSession.CurrentState == GameState.Combat
-                || RunSession.CurrentState == GameState.Event;
+            // 翻页按钮为测试辅助（切遭遇/切事件），仅测试配置可见
+            bool showTestEntries = GameConfigProvider.Active != null
+                && GameConfigProvider.Active.EnableTestEntries
+                && !GameConfigProvider.IsReleaseLocked;
+            bool canSwitchEncounter = showTestEntries
+                && (RunSession.CurrentState == GameState.Combat || RunSession.CurrentState == GameState.Event);
             if (_prevEncounterButton != null) _prevEncounterButton.gameObject.SetActive(canSwitchEncounter);
             if (_nextEncounterButton != null) _nextEncounterButton.gameObject.SetActive(canSwitchEncounter);
 
             RefreshHandCards();
             RefreshMapNodes();
+            RefreshEventOptions();
 
             Refresh();
         }
@@ -610,6 +615,13 @@ namespace OneJourney.Core
             SetElementsActive(_testEntryElements, showTestEntries);
             SetElementsActive(_modeSwitchElements, showModeSwitch);
             _hudText.gameObject.SetActive(config != null && config.ShowTestHud);
+
+            // 翻页按钮（切遭遇/切事件）同为测试辅助：配置切换时同步显隐
+            bool inSwitchablePage = RunSession.CurrentState == GameState.Combat
+                || RunSession.CurrentState == GameState.Event;
+            if (_prevEncounterButton != null) _prevEncounterButton.gameObject.SetActive(showTestEntries && inSwitchablePage);
+            if (_nextEncounterButton != null) _nextEncounterButton.gameObject.SetActive(showTestEntries && inSwitchablePage);
+
             Refresh();
         }
 
@@ -624,6 +636,11 @@ namespace OneJourney.Core
             }
 
             if (_handCardContainer == null) return;
+
+            // 手牌区仅战斗状态显示（避免事件/地图页残留黑色背景条）
+            bool showHand = RunSession.CurrentState == GameState.Combat && CombatManager.IsActive;
+            _handCardContainer.gameObject.SetActive(showHand);
+            if (!showHand) return;
 
             // 清理旧按钮
             for (int i = _handCardContainer.childCount - 1; i >= 0; i--)
@@ -938,9 +955,12 @@ namespace OneJourney.Core
             var img = go.GetComponent<Image>();
             img.color = disabled ? new Color(0.25f, 0.25f, 0.25f) : new Color(0.3f, 0.45f, 0.6f);
 
+            // 宽度按文本估算（字号 16，中文约 16px/字，留边距）；布局组按 preferredWidth 控制宽度
             var le = go.GetComponent<LayoutElement>();
-            le.minWidth = 300;
-            le.minHeight = 30;
+            le.minWidth = 160;
+            le.preferredWidth = label.Length * 18 + 32;
+            le.minHeight = 38;
+            le.preferredHeight = 38;
 
             var textGo = new GameObject("Text", typeof(RectTransform), typeof(Text));
             textGo.transform.SetParent(go.transform, false);
@@ -948,15 +968,18 @@ namespace OneJourney.Core
             var text = textGo.GetComponent<Text>();
             text.text = label;
             text.font = font;
-            text.fontSize = 14;
+            text.fontSize = 16;
             text.alignment = TextAnchor.MiddleCenter;
             text.color = Color.white;
             text.raycastTarget = false;
+            text.horizontalOverflow = HorizontalWrapMode.Wrap;
+            text.verticalOverflow = VerticalWrapMode.Truncate;
 
             var textRt = (RectTransform)textGo.transform;
             textRt.anchorMin = Vector2.zero;
             textRt.anchorMax = Vector2.one;
-            textRt.sizeDelta = Vector2.zero;
+            textRt.offsetMin = new Vector2(8, 2);
+            textRt.offsetMax = new Vector2(-8, -2);
 
             go.GetComponent<Button>().interactable = !disabled;
             return go;
