@@ -17,7 +17,8 @@ namespace OneJourney.Core
         [SerializeField] private GameObject _handCardPrefab;
         [SerializeField] private GameObject _unitCardPrefab;   // 队伍用
         [SerializeField] private GameObject _enemyCardPrefab;  // 敌人用
-        [SerializeField] private GameObject _skipRewardButtonPrefab; // 跳过奖励按钮
+        [SerializeField] private GameObject _skipRewardButtonPrefab; // 跳过奖励按钮（旧结算区用）
+        [SerializeField] private GameObject _rewardPagePrefab;       // 独立奖励页（胜利后弹出）
 
         // 从 Prefab 实例中解析的引用（非序列化）
         private GameObject _rootPanel;
@@ -33,12 +34,23 @@ namespace OneJourney.Core
         private TMP_Text _drawPileText;
         private TMP_Text _discardPileText;
 
+        // 奖励页（A2-20.5）运行时引用
+        private GameObject _rewardPanel;
+        private TMP_Text _rewardTitleText;
+        private TMP_Text _rewardDetailText;
+        private Transform _rewardCardContainer;
+        private Button _rewardSkipBtn;
+        private Button _rewardContinueBtn;
+        private readonly List<GameObject> _rewardCardGos = new List<GameObject>();
+        private string _rewardStatusText; // 领卡/跳过后显示在明细下
+
         private int _selectedHandIndex = -1;
         private CardDef _selectedCard;
         private readonly List<GameObject> _handCardGos = new List<GameObject>();
         private readonly List<GameObject> _teamUnitGos = new List<GameObject>();
         private readonly List<GameObject> _enemyUnitGos = new List<GameObject>();
         private bool _targetMode;
+        private bool _combatWon; // 本场胜利标记（模拟胜利 End 后 Phase 变 Ended，不依赖 Phase 判断）
 
         private void Awake()
         {
@@ -56,6 +68,7 @@ namespace OneJourney.Core
                 ResolveRefs();
                 if (_endTurnButton != null) _endTurnButton.onClick.AddListener(OnEndTurn);
                 if (_returnButton != null) _returnButton.onClick.AddListener(OnReturn);
+                EnsureRewardPanel(canvasTr);
 
                 // 确保 HUD 渲染在最上层
                 var hud = canvasTr.Find("TestHud");
@@ -63,6 +76,9 @@ namespace OneJourney.Core
             }
 
             _postCombatBuilt = false;
+            _rewardStatusText = null;
+            _combatWon = false;
+            if (_rewardPanel != null) _rewardPanel.SetActive(false);
             _rootPanel.SetActive(true);
             Refresh();
         }
@@ -70,8 +86,11 @@ namespace OneJourney.Core
         public void Hide()
         {
             if (_rootPanel != null) _rootPanel.SetActive(false);
+            if (_rewardPanel != null) _rewardPanel.SetActive(false);
             _selectedHandIndex = -1; _selectedCard = null; _targetMode = false;
             _postCombatBuilt = false;
+            _rewardStatusText = null;
+            _combatWon = false;
         }
 
         public void Refresh()
@@ -129,11 +148,10 @@ namespace OneJourney.Core
                 Destroy(_handContainer.GetChild(i).gameObject);
             _handCardGos.Clear();
 
-            // 显示结算信息
+            // 结算信息：胜利的标题/资源/卡牌由独立奖励页展示，战斗页不再显示；失败提示保留在战斗页
             if (_turnInfoText != null)
             {
-                string result = CombatManager.Phase == CombatPhase.Victory ? "胜利！" : "失败";
-                _turnInfoText.text = "战斗结束 — " + result;
+                _turnInfoText.text = CombatManager.Phase == CombatPhase.Defeat ? "战斗结束 — 失败" : "";
             }
             if (_energyText != null) _energyText.text = "";
             if (_moraleText != null) _moraleText.text = "";
@@ -143,29 +161,96 @@ namespace OneJourney.Core
             RefreshTeam();
             RefreshEnemies();
 
+            // 胜利：弹出独立奖励页（资源明细 + 卡牌选项）
+            if (CombatManager.Phase == CombatPhase.Victory || _combatWon)
+            {
+                ShowRewardPage();
+            }
+
+            if (_endTurnButton != null) _endTurnButton.gameObject.SetActive(false);
+        }
+
+        private System.Collections.IEnumerator RebuildPostCombatNextFrame()
+        {
+            yield return null; // 等点击事件完全结束再重建
+            _postCombatBuilt = false;
+            RefreshPostCombat();
+        }
+
+        // === 奖励页（A2-20.5）===
+
+        private void EnsureRewardPanel(Transform canvasTr)
+        {
+            if (_rewardPagePrefab == null || _rewardPanel != null) return;
+            _rewardPanel = Instantiate(_rewardPagePrefab, canvasTr);
+            _rewardPanel.SetActive(false);
+            var r = _rewardPanel.transform;
+            _rewardTitleText = r.Find("TitleBar/Title/Text")?.GetComponent<TMP_Text>();
+            _rewardDetailText = r.Find("TitleBar/RewardDetail/Text")?.GetComponent<TMP_Text>();
+            _rewardCardContainer = r.Find("CardOptions");
+            _rewardSkipBtn = r.Find("BottomBar/SkipBtn")?.GetComponent<Button>();
+            _rewardContinueBtn = r.Find("BottomBar/ContinueBtn")?.GetComponent<Button>();
+            if (_rewardSkipBtn != null) _rewardSkipBtn.onClick.AddListener(OnRewardSkip);
+            if (_rewardContinueBtn != null) _rewardContinueBtn.onClick.AddListener(OnRewardContinue);
+        }
+
+        /// <summary>弹出奖励页（战斗胜利后自动调用；模拟胜利等外部路径也可直接调用）。</summary>
+        public bool ShowRewardPage()
+        {
+            if (_rewardPanel == null) return false;
+            _combatWon = true; // End 后 Phase 变 Ended，领卡重建等路径依赖此标记
+            _rewardPanel.SetActive(true);
+
+            // 确保 HUD 渲染在最上层
+            var hud = _rewardPanel.transform.parent?.Find("TestHud");
+            if (hud != null) hud.SetAsLastSibling();
+
+            if (_rewardTitleText != null) _rewardTitleText.text = "战斗胜利";
+            if (_rewardDetailText != null)
+            {
+                string detail = string.IsNullOrEmpty(RunSession.LastCombatRewardText)
+                    ? "无资源奖励" : RunSession.LastCombatRewardText;
+                if (!string.IsNullOrEmpty(_rewardStatusText)) detail += "\n" + _rewardStatusText;
+                _rewardDetailText.text = detail;
+            }
+
+            // 清空旧选项（清理 RewardPage 根下本页生成的卡片）
+            for (int i = _rewardPanel.transform.childCount - 1; i >= 0; i--)
+            {
+                var old = _rewardPanel.transform.GetChild(i);
+                if (old.name.StartsWith("Reward_")) Destroy(old.gameObject);
+            }
+            _rewardCardGos.Clear();
+
             if (RewardResolver.HasPendingRewards)
             {
-                for (int i = 0; i < RewardResolver.PendingOptions.Count; i++)
+                int total = RewardResolver.PendingOptions.Count;
+                for (int i = 0; i < total; i++)
                 {
                     int idx = i;
                     var opt = RewardResolver.PendingOptions[i];
                     var cardDef = CardCatalog.Find(opt.CardId);
                     if (cardDef == null) continue;
 
-                    // 用 HandCard Prefab 展示奖励卡牌
-                    var go = Instantiate(_handCardPrefab, _handContainer);
+                    // 卡片直接挂到奖励页根并手动布局：CardOptions 容器下渲染异常（已实测），
+                    // 挂到有 Image 的 RewardPage 根可正常渲染
+                    var go = Instantiate(_handCardPrefab, _rewardPanel.transform);
                     go.name = "Reward_" + cardDef.Id;
-
+                    var cardRt = go.GetComponent<RectTransform>();
+                    cardRt.anchorMin = new Vector2(0.5f, 0.5f);
+                    cardRt.anchorMax = new Vector2(0.5f, 0.5f);
+                    cardRt.pivot = new Vector2(0.5f, 0.5f);
+                    cardRt.sizeDelta = new Vector2(200, 300);
+                    cardRt.anchoredPosition = new Vector2((i - (total - 1) * 0.5f) * 224f, 0);
                     Color baseColor = CardColor(cardDef);
                     var img = go.GetComponent<Image>();
-                    if (img != null) img.color = new Color(baseColor.r * 0.6f, baseColor.g * 0.6f, baseColor.b * 0.6f);
+                    if (img != null) img.color = new Color(baseColor.r * 0.85f, baseColor.g * 0.85f, baseColor.b * 0.85f);
                     var bar = go.transform.Find("TopBar");
                     if (bar != null)
                     {
                         var barImg = bar.GetComponent<Image>();
                         if (barImg != null) barImg.color = baseColor;
                     }
-
                     SetTmp(go, "Word/CostRow/Cost", cardDef.Cost.ToString());
                     SetTmp(go, "Word/CostRow/Name", cardDef.DisplayName);
                     SetTmp(go, "Word/Effect", cardDef.EffectText);
@@ -181,41 +266,39 @@ namespace OneJourney.Core
                                 RunSession.CampaignDeck.AddCard(claimed);
                                 RunSession.RecordResolution("战斗奖励", "选择卡牌 " + claimed,
                                     "已加入牌组，当前 " + RunSession.CampaignDeck.Count + " 张");
+                                _rewardStatusText = "已领取：" + cardDef.DisplayName;
                             }
                             _postCombatBuilt = false;
                             StartCoroutine(RebuildPostCombatNextFrame());
                         });
                     }
+                    _rewardCardGos.Add(go);
                 }
-
-                // 跳过按钮（Prefab）
-                var skipGo = _skipRewardButtonPrefab != null
-                    ? Instantiate(_skipRewardButtonPrefab, _handContainer)
-                    : null;
-                if (skipGo != null)
-                {
-                    var skipBtn = skipGo.GetComponent<Button>();
-                    if (skipBtn != null)
-                    {
-                        skipBtn.onClick.RemoveAllListeners();
-                        skipBtn.onClick.AddListener(() => {
-                            RewardResolver.SkipReward();
-                            RunSession.RecordResolution("战斗奖励", "跳过卡牌奖励", "已放弃选择");
-                            _postCombatBuilt = false;
-                            RefreshPostCombat();
-                        });
-                    }
-                }
+                if (_rewardSkipBtn != null) _rewardSkipBtn.gameObject.SetActive(true);
+                if (_rewardContinueBtn != null) _rewardContinueBtn.gameObject.SetActive(false);
             }
-
-            if (_endTurnButton != null) _endTurnButton.gameObject.SetActive(false);
+            else
+            {
+                if (_rewardSkipBtn != null) _rewardSkipBtn.gameObject.SetActive(false);
+                if (_rewardContinueBtn != null) _rewardContinueBtn.gameObject.SetActive(true);
+            }
+            return true;
         }
 
-        private System.Collections.IEnumerator RebuildPostCombatNextFrame()
+        private void OnRewardSkip()
         {
-            yield return null; // 等点击事件完全结束再重建
+            RewardResolver.SkipReward();
+            RunSession.RecordResolution("战斗奖励", "跳过卡牌奖励", "已放弃选择");
+            _rewardStatusText = "已跳过奖励";
             _postCombatBuilt = false;
-            RefreshPostCombat();
+            StartCoroutine(RebuildPostCombatNextFrame());
+        }
+
+        private void OnRewardContinue()
+        {
+            Hide();
+            var ui = FindObjectOfType<GameUi>();
+            if (ui != null) ui.ReturnToMenu();
         }
 
         private void RefreshTurnInfo()
@@ -374,7 +457,10 @@ namespace OneJourney.Core
             if (card.TargetType == TargetType.None || card.TargetType == TargetType.Self
                 || card.TargetType == TargetType.AllEnemies || card.TargetType == TargetType.AllAllies)
             {
-                RunSession.RecordResolution("手牌出牌", "打出 " + card.DisplayName, CombatResolver.PlayCard(handIndex));
+                string result = CombatResolver.PlayCard(handIndex);
+                // 若这一击结束战斗，CheckEndCondition 已记录「战斗奖励」，出牌记录不再覆盖
+                if (CombatManager.Phase != CombatPhase.Victory && CombatManager.Phase != CombatPhase.Defeat)
+                    RunSession.RecordResolution("手牌出牌", "打出 " + card.DisplayName, result);
                 _selectedHandIndex = -1; _selectedCard = null; _targetMode = false;
                 Refresh();
             }
@@ -391,9 +477,10 @@ namespace OneJourney.Core
         {
             if (!_targetMode || _selectedCard == null || _selectedHandIndex < 0) return;
             if (!CombatManager.CanPlayerAct) return;
-            RunSession.RecordResolution("手牌出牌",
-                "打出 " + _selectedCard.DisplayName + " → " + target.DisplayName,
-                CombatResolver.PlayCard(_selectedHandIndex, target));
+            string result = CombatResolver.PlayCard(_selectedHandIndex, target);
+            if (CombatManager.Phase != CombatPhase.Victory && CombatManager.Phase != CombatPhase.Defeat)
+                RunSession.RecordResolution("手牌出牌",
+                    "打出 " + _selectedCard.DisplayName + " → " + target.DisplayName, result);
             _selectedHandIndex = -1; _selectedCard = null; _targetMode = false;
             Refresh();
         }

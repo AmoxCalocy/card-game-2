@@ -113,12 +113,12 @@ namespace OneJourney.Tests.EditMode
         }
 
         [Test]
-        public void SkipReward_ClearsPending()
+        public void SkipReward_ClearsCardOptions_KeepsResources()
         {
             RewardResolver.GenerateRewards(EncounterConfig.EncounterType.Normal, "草原");
             RewardResolver.SkipReward();
-            Assert.IsFalse(RewardResolver.HasPendingRewards);
-            Assert.AreEqual(0, RewardResolver.PendingWealth);
+            Assert.IsFalse(RewardResolver.HasPendingRewards, "跳过清空卡牌选项");
+            Assert.AreEqual(5, RewardResolver.PendingWealth, "资源奖励不受跳过影响（由 ApplyCombatRewards 在胜利时入账）");
         }
     }
 }

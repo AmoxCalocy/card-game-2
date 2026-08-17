@@ -61,11 +61,10 @@ namespace OneJourney.Core
             return opt.CardId;
         }
 
-        /// <summary>跳过卡牌奖励。</summary>
+        /// <summary>跳过卡牌奖励（资源奖励已在战斗胜利时由 RunSession.ApplyCombatRewards 入账，此处只放弃卡牌选项）。</summary>
         public static void SkipReward()
         {
             _pending.Clear();
-            PendingWealth = 0; PendingFood = 0; PendingMaterials = 0;
         }
 
         public static void Clear()

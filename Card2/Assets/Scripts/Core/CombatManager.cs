@@ -410,6 +410,8 @@ namespace OneJourney.Core
                 PartnerRoster.SyncFromCombat(PlayerTeam);
                 RunSession.SyncPlayerFromCombat(PlayerTeam);
                 RewardResolver.GenerateRewards(CurrentEncounterType, "草原");
+                // A2-20：资源奖励入账（来源/变化量/变化后总量入结算记录）
+                RunSession.ApplyCombatRewards();
                 RunRecord.Log(RecordCategory.General,
                     "奖励已生成：" + RewardResolver.PendingOptions.Count + " 张卡牌可选，财富 "
                     + RewardResolver.PendingWealth + " 粮食 " + RewardResolver.PendingFood);

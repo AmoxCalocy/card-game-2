@@ -82,6 +82,9 @@ namespace OneJourney.Core
         /// <summary>事件战斗胜利额外奖励（触发事件战斗时暂存，胜利后结算一次）。</summary>
         private static EventOptionDef _pendingEventCombatReward;
 
+        /// <summary>最近一次战斗胜利的资源奖励文本（A2-20，结算页展示用；无奖励时为 null）。</summary>
+        public static string LastCombatRewardText { get; private set; }
+
         public static GameState CurrentState => GameFlow.CurrentState;
 
         public static IReadOnlyList<ResolutionRecord> Records => RecordsList;
@@ -287,6 +290,7 @@ namespace OneJourney.Core
             _testEventIndex = 0;
             Relics.Clear();
             _pendingEventCombatReward = null;
+            LastCombatRewardText = null;
             Changed?.Invoke();
         }
 
@@ -616,6 +620,42 @@ namespace OneJourney.Core
         public static void ClearPendingEventCombatRewards()
         {
             _pendingEventCombatReward = null;
+        }
+
+        /// <summary>
+        /// 战斗胜利资源入账（A2-20，配置表 §2.4/§10）：把 RewardResolver 生成的资源奖励
+        /// 钳制入账并集中记录（来源/变化量/变化后总量）。重复调用不会重复入账（Pending 已清零）。
+        /// </summary>
+        public static string ApplyCombatRewards()
+        {
+            var effects = new System.Collections.Generic.List<string>();
+
+            if (RewardResolver.PendingWealth != 0)
+            {
+                Wealth = Clamp(Wealth + RewardResolver.PendingWealth, 0, GameStartParameters.MaxWealth);
+                effects.Add("财富 " + Signed(RewardResolver.PendingWealth) + "（当前 " + Wealth + "）");
+            }
+
+            if (RewardResolver.PendingFood != 0)
+            {
+                Food = Clamp(Food + RewardResolver.PendingFood, 0, GameStartParameters.MaxFood);
+                effects.Add("粮食 " + Signed(RewardResolver.PendingFood) + "（当前 " + Food + "）");
+            }
+
+            if (RewardResolver.PendingMaterials != 0)
+            {
+                Materials = Clamp(Materials + RewardResolver.PendingMaterials, 0, GameStartParameters.MaxBuildingMaterials);
+                effects.Add("建材 " + Signed(RewardResolver.PendingMaterials) + "（当前 " + Materials + "）");
+            }
+
+            RewardResolver.PendingWealth = 0;
+            RewardResolver.PendingFood = 0;
+            RewardResolver.PendingMaterials = 0;
+
+            string result = effects.Count > 0 ? string.Join("；", effects) : "无资源奖励";
+            LastCombatRewardText = effects.Count > 0 ? result : null;
+            RecordResolution("战斗奖励", "战斗胜利资源入账", result);
+            return result;
         }
 
         // === 事件内部 ===

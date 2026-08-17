@@ -214,7 +214,7 @@ namespace OneJourney.Tests.EditMode
             foreach (var e in CombatManager.EnemyTeam) e.TakeDamage(e.CurrentHp + e.Armor);
             CombatManager.CheckEndCondition();
 
-            Assert.AreEqual(wealthBefore + 5, RunSession.Wealth, "胜利后财富 +5");
+            Assert.AreEqual(wealthBefore + 10, RunSession.Wealth, "胜利后财富 +10（事件奖励 5 + 普通遭遇奖励 5）");
         }
 
         [Test]
@@ -567,7 +567,7 @@ namespace OneJourney.Tests.EditMode
             foreach (var e in CombatManager.EnemyTeam) e.TakeDamage(e.CurrentHp + e.Armor);
             CombatManager.CheckEndCondition();
 
-            Assert.AreEqual(matBefore + 1, RunSession.Materials, "胜利后建材 +1");
+            Assert.AreEqual(matBefore + 1, RunSession.Materials, "胜利后建材 +1（事件额外奖励；事件战斗按普通遭遇，普通奖励无建材）");
         }
 
         // ---- E14 药草地 ----

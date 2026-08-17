@@ -336,6 +336,7 @@ namespace OneJourney.Core
                 if (evt != null)
                 {
                     desc += evt.DisplayName + "（" + evt.Id + "）\n" + evt.Description;
+                    desc += "\n" + BuildResourceLine();
                 }
             }
             else
@@ -362,8 +363,10 @@ namespace OneJourney.Core
             }
 
             CombatManager.CheckEndCondition();
+            bool won = CombatManager.Phase == CombatPhase.Victory;
             CombatManager.End();
-            RunSession.RecordResolution("战斗结算", "模拟胜利", "战斗结束，临时状态已清理");
+            // 胜利：弹出独立奖励页（CheckEndCondition 已记录「战斗奖励」）；失败仍刷新战斗页
+            if (won && _battleView != null && _battleView.ShowRewardPage()) return;
             ShowPage("测试入口：战斗", BuildCombatDescription());
         }
 
@@ -461,7 +464,9 @@ namespace OneJourney.Core
             if (handIndex < 0 || handIndex >= CombatManager.Deck.HandSize) return;
 
             string result = CombatResolver.PlayCard(handIndex);
-            RunSession.RecordResolution("手牌出牌", "打出第 " + (handIndex + 1) + " 张手牌", result);
+            // 若这一击结束战斗，CheckEndCondition 已记录「战斗奖励」，出牌记录不再覆盖
+            if (CombatManager.Phase != CombatPhase.Victory && CombatManager.Phase != CombatPhase.Defeat)
+                RunSession.RecordResolution("手牌出牌", "打出第 " + (handIndex + 1) + " 张手牌", result);
             ShowPage("测试入口：战斗", BuildCombatDescription());
         }
 
@@ -788,6 +793,15 @@ namespace OneJourney.Core
             ShowPage("地图", BuildMapDescription() + "\n" + result);
         }
 
+        /// <summary>四资源显示行（含上限），地图/事件页共用。</summary>
+        private static string BuildResourceLine()
+        {
+            return "资源：粮食 " + RunSession.Food + "/" + GameStartParameters.MaxFood
+                + " / 财富 " + RunSession.Wealth + "/" + GameStartParameters.MaxWealth
+                + " / 声望 " + RunSession.Reputation + "/" + GameStartParameters.MaxReputation
+                + " / 建材 " + RunSession.Materials + "/" + GameStartParameters.MaxBuildingMaterials;
+        }
+
         private void ShowEventPage()
         {
             var evt = RunSession.CurrentEvent;
@@ -798,8 +812,7 @@ namespace OneJourney.Core
             }
 
             string desc = evt.DisplayName + "（" + evt.Id + "）\n" + evt.Description + "\n\n";
-            desc += "资源：粮食 " + RunSession.Food + " / 财富 " + RunSession.Wealth
-                + " / 声望 " + RunSession.Reputation + " / 建材 " + RunSession.Materials + "\n";
+            desc += BuildResourceLine() + "\n";
             ShowPage("事件", desc);
             RefreshEventOptions();
         }
@@ -1073,10 +1086,7 @@ namespace OneJourney.Core
                 desc += "\n";
             }
 
-            desc += "资源：粮食 " + RunSession.Food
-                + " / 财富 " + RunSession.Wealth
-                + " / 声望 " + RunSession.Reputation
-                + " / 建材 " + RunSession.Materials;
+            desc += BuildResourceLine();
             if (RunSession.Risk > 0) desc += " | 风险 " + RunSession.Risk;
             desc += "\n";
             desc += "风险提示：草原每次移动风险 +1，精英节点额外 +1；达到 " + GameStartParameters.RiskThreshold
