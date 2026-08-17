@@ -85,6 +85,20 @@ namespace OneJourney.Core
         /// <summary>最近一次战斗胜利的资源奖励文本（A2-20，结算页展示用；无奖励时为 null）。</summary>
         public static string LastCombatRewardText { get; private set; }
 
+        // ---- 建筑（A2-21，配置表 §8）----
+        /// <summary>本局已建造的建筑 ID（去重，一栋只能建一次）。</summary>
+        public static readonly List<string> BuiltBuildings = new List<string>();
+
+        /// <summary>草原首领已击败（城镇建筑前置；首领遭遇胜利时置位）。</summary>
+        public static bool GrasslandBossDefeated { get; private set; }
+
+        private static bool _campBonusUsedThisRegion;        // B01：本区域首次进营地奖励已用
+        private static bool _eventWealthBonusUsedThisRegion; // B05：本区域首次事件财富加成已用
+        private static bool _freeUpgradePending;             // B03：首次建成后的免费升级待用
+
+        /// <summary>营地页最近一次结算文本（展示用）。</summary>
+        public static string LastCampResult { get; private set; }
+
         public static GameState CurrentState => GameFlow.CurrentState;
 
         public static IReadOnlyList<ResolutionRecord> Records => RecordsList;
@@ -127,6 +141,7 @@ namespace OneJourney.Core
             RunRecord.Clear();
             RecordsList.Clear();
             InitCampaignResources();
+            GrasslandBossDefeated = false; // 新局首领击败标记清零（测试入口间保留的进度在新局不继承）
             if (CampaignDeck == null)
                 CampaignDeck = new CampaignDeck(GameStartParameters.StartingDeck);
 
@@ -178,6 +193,22 @@ namespace OneJourney.Core
                 SetTestEvent(_testEventIndex);
                 RecordResolution("事件初始化", "测试入口进入事件", CurrentEvent != null ? CurrentEvent.Id : "无");
             }
+            else if (page == GameState.Camp)
+            {
+                // 测试入口营地页：补齐建造用调试资源（建材/财富/声望），便于 Play 验证建筑
+                Materials = System.Math.Max(Materials, 10);
+                Wealth = System.Math.Max(Wealth, 50);
+                Reputation = System.Math.Max(Reputation, 10);
+                RecordResolution("测试入口", "进入营地测试",
+                    "调试资源：建材 " + Materials + " / 财富 " + Wealth + " / 声望 " + Reputation);
+            }
+            else if (page == GameState.Camp)
+            {
+                // 测试入口：营地页需要战役牌组（牌组管理）
+                if (CampaignDeck == null)
+                    CampaignDeck = new CampaignDeck(GameStartParameters.StartingDeck);
+                RecordResolution("营地初始化", "测试入口进入营地", "起始资源：粮食" + Food + " 财富" + Wealth + " 建材" + Materials + " 声望" + Reputation);
+            }
         }
 
         private static int _testEventIndex;
@@ -220,7 +251,7 @@ namespace OneJourney.Core
             var player = CombatUnit.CreatePlayer(45, 6);
             var team = PartnerRoster.BuildCombatTeam(player);
 
-            var cfg = EncounterConfig.All[_testEncounterIndex % EncounterConfig.All.Length];
+            var cfg = EncounterConfig.All[((_testEncounterIndex % EncounterConfig.All.Length) + EncounterConfig.All.Length) % EncounterConfig.All.Length];
             var enemies = new List<CombatUnit>(cfg.Enemies);
 
             // 使用战役牌组（首次自动初始化）
@@ -236,6 +267,15 @@ namespace OneJourney.Core
                 CombatManager.IsActive
                     ? "玩家队伍 " + team.Count + " 人 / 敌人 " + enemies.Count + " 个"
                     : "初始化失败（检查日志）");
+        }
+
+        /// <summary>测试入口翻页重开战斗：状态已在 Combat（Combat→Combat 为非法转移），直接重新初始化。</summary>
+        public static void RelaunchTestCombat()
+        {
+            CombatManager.End();
+            InitTestCombat();
+            RecordResolution("战斗初始化", "翻页重开：" + CurrentEncounterLabel(),
+                CombatManager.IsActive ? "已切换到新遭遇" : "初始化失败（检查日志）");
         }
 
         public static string CurrentEncounterLabel()
@@ -291,6 +331,12 @@ namespace OneJourney.Core
             Relics.Clear();
             _pendingEventCombatReward = null;
             LastCombatRewardText = null;
+            BuiltBuildings.Clear();
+            // 首领击败标记跨测试入口保留（测试入口共享战役进度；新游戏 StartNewGame 时清零）
+            _campBonusUsedThisRegion = false;
+            _eventWealthBonusUsedThisRegion = false;
+            _freeUpgradePending = false;
+            LastCampResult = null;
             Changed?.Invoke();
         }
 
@@ -658,6 +704,173 @@ namespace OneJourney.Core
             return result;
         }
 
+        // === 建筑（A2-21，配置表 §8）===
+
+        public static bool HasBuilding(string id)
+        {
+            return BuiltBuildings.Contains(id);
+        }
+
+        /// <summary>首领遭遇胜利时调用（城镇建筑前置解锁）。</summary>
+        public static void MarkGrasslandBossDefeated()
+        {
+            if (GrasslandBossDefeated) return;
+            GrasslandBossDefeated = true;
+            RecordResolution("建筑", "解锁城镇建筑", "草原首领已击败，可建造城镇建筑");
+        }
+
+        /// <summary>建造前置校验：返回禁用原因；可建造时返回 null。</summary>
+        public static string BuildBlockReason(string id)
+        {
+            var b = BuildingCatalog.Find(id);
+            if (b == null) return "建筑不存在：" + id;
+            if (HasBuilding(id)) return "已建造";
+            if (b.RequiresBossDefeated && !GrasslandBossDefeated) return "需要先击败草原首领";
+            if (Wealth < b.CostWealth) return "财富不足（需要 " + b.CostWealth + "）";
+            if (Materials < b.CostMaterial) return "建材不足（需要 " + b.CostMaterial + "）";
+            if (Reputation < b.CostReputation) return "声望不足（需要 " + b.CostReputation + "）";
+            return null;
+        }
+
+        /// <summary>建造一栋建筑：前置校验→扣资源→登记→记录；失败时资源不变。</summary>
+        public static string TryBuildBuilding(string id)
+        {
+            var b = BuildingCatalog.Find(id);
+            if (b == null) return "建筑不存在：" + id;
+            string block = BuildBlockReason(id);
+            if (block != null) return "建造失败：" + block;
+
+            Wealth -= b.CostWealth;
+            Materials -= b.CostMaterial;
+            Reputation -= b.CostReputation;
+            BuiltBuildings.Add(id);
+            if (id == "B03") _freeUpgradePending = true; // 铁匠铺首次建成可免费升级 1 张卡
+
+            RecordResolution("建筑", "建造 " + b.DisplayName,
+                "支付 财富" + b.CostWealth + " 建材" + b.CostMaterial + " 声望" + b.CostReputation
+                + "（当前 财富" + Wealth + " 建材" + Materials + " 声望" + Reputation + "）；" + b.EffectText);
+            LastCampResult = "建成 " + b.DisplayName + "：" + b.EffectText;
+            return LastCampResult;
+        }
+
+        /// <summary>进入营地节点结算（A2-21）：风险 -2；B01 建成时本区域首次进营地粮食 +4。</summary>
+        public static string EnterCampNode()
+        {
+            var effects = new System.Collections.Generic.List<string>();
+            Risk = Clamp(Risk - GameStartParameters.CampRiskReduction, 0, GameStartParameters.RiskThreshold);
+            effects.Add("风险 -" + GameStartParameters.CampRiskReduction + "（当前 " + Risk + "）");
+
+            if (HasBuilding("B01") && !_campBonusUsedThisRegion)
+            {
+                _campBonusUsedThisRegion = true;
+                Food = Clamp(Food + 4, 0, GameStartParameters.MaxFood);
+                effects.Add("储粮帐篷：粮食 +4（当前 " + Food + "）");
+            }
+
+            string result = string.Join("；", effects);
+            LastCampResult = result;
+            RecordResolution("营地", "进入营地", result);
+            return result;
+        }
+
+        /// <summary>营地基础服务 S01 篝火休整：选择 1 名存活单位移除 1 层疲劳。
+        /// 配置表的「恢复至最大生命 25%」部分留待战役生命系统（MVP 未实现战役 HP）。</summary>
+        public static string CampfireRest(string unitId)
+        {
+            string name = UnitDisplayName(unitId);
+            if (name == null) return "该单位不可用";
+            if (unitId == "PLAYER")
+            {
+                if (PlayerFatigue <= 0) return "主角没有疲劳";
+                PlayerFatigue--;
+            }
+            else
+            {
+                var p = PartnerRoster.Find(unitId);
+                if (p.Fatigue <= 0) return name + " 没有疲劳";
+                p.Fatigue--;
+            }
+
+            string result = name + " 移除 1 层疲劳";
+            LastCampResult = result;
+            RecordResolution("营地", "篝火休整", result);
+            return result;
+        }
+
+        /// <summary>B02 野战医棚：选择 1 名存活单位移除受伤或 1 层疾病（MVP：移除 1 层疾病）。</summary>
+        public static string CampClinic(string unitId)
+        {
+            return BuildingStatusService(unitId, true, "野战医棚");
+        }
+
+        /// <summary>B04 医馆：选择 1 名存活单位移除 1 层疾病或疲劳。</summary>
+        public static string TownClinic(string unitId, bool removeDisease)
+        {
+            return BuildingStatusService(unitId, removeDisease, "医馆");
+        }
+
+        private static string BuildingStatusService(string unitId, bool removeDisease, string source)
+        {
+            string name = UnitDisplayName(unitId);
+            if (name == null) return "该单位不可用";
+            if (unitId == "PLAYER")
+            {
+                if (removeDisease)
+                {
+                    if (PlayerDisease <= 0) return "主角没有疾病";
+                    PlayerDisease--;
+                }
+                else
+                {
+                    if (PlayerFatigue <= 0) return "主角没有疲劳";
+                    PlayerFatigue--;
+                }
+            }
+            else
+            {
+                var p = PartnerRoster.Find(unitId);
+                if (removeDisease)
+                {
+                    if (p.Disease <= 0) return name + " 没有疾病";
+                    p.Disease--;
+                }
+                else
+                {
+                    if (p.Fatigue <= 0) return name + " 没有疲劳";
+                    p.Fatigue--;
+                }
+            }
+
+            string result = name + " 移除 1 层" + (removeDisease ? "疾病" : "疲劳");
+            LastCampResult = result;
+            RecordResolution("建筑", source, result);
+            return result;
+        }
+
+        /// <summary>B03 铁匠铺首次建成后的免费升级待用标记。</summary>
+        public static bool FreeUpgradePending => _freeUpgradePending;
+
+        /// <summary>B03 免费升级：选择 1 张卡升级（一次性，升级后清除待用标记）。</summary>
+        public static string FreeUpgradeCard(string cardId)
+        {
+            if (!_freeUpgradePending) return "没有待用的免费升级";
+            if (CampaignDeck == null) return "战役牌组未初始化";
+            if (!CampaignDeck.UpgradeCard(cardId)) return "该卡不能升级（不在牌组或已升级）";
+            _freeUpgradePending = false;
+            var c = CardCatalog.Find(cardId);
+            string name = c != null ? c.DisplayName : cardId;
+            LastCampResult = "铁匠铺免费升级：" + name + " 已升级";
+            RecordResolution("建筑", "铁匠铺免费升级", name + " 已升级");
+            return LastCampResult;
+        }
+
+        private static string UnitDisplayName(string unitId)
+        {
+            if (unitId == "PLAYER") return "主角";
+            var p = PartnerRoster.Find(unitId);
+            return p != null && p.IsRecruited && p.IsAlive ? p.Def.DisplayName : null;
+        }
+
         // === 事件内部 ===
 
         private static bool IsPartnerAvailable(string partnerId)
@@ -725,7 +938,19 @@ namespace OneJourney.Core
             var effects = new System.Collections.Generic.List<string>();
 
             if (opt.FoodDelta != 0) { Food = Clamp(Food + opt.FoodDelta, 0, GameStartParameters.MaxFood); effects.Add("粮食 " + Signed(opt.FoodDelta) + "（当前 " + Food + "）"); }
-            if (opt.WealthDelta != 0) { Wealth = Clamp(Wealth + opt.WealthDelta, 0, GameStartParameters.MaxWealth); effects.Add("财富 " + Signed(opt.WealthDelta) + "（当前 " + Wealth + "）"); }
+            if (opt.WealthDelta != 0)
+            {
+                int wealthGain = opt.WealthDelta;
+                // B05 市集：每个区域首次通过事件获得财富时额外 +5
+                if (wealthGain > 0 && HasBuilding("B05") && !_eventWealthBonusUsedThisRegion)
+                {
+                    _eventWealthBonusUsedThisRegion = true;
+                    wealthGain += 5;
+                }
+
+                Wealth = Clamp(Wealth + wealthGain, 0, GameStartParameters.MaxWealth);
+                effects.Add("财富 " + Signed(wealthGain) + "（当前 " + Wealth + "）");
+            }
             if (opt.ReputationDelta != 0) { Reputation = Clamp(Reputation + opt.ReputationDelta, 0, GameStartParameters.MaxReputation); effects.Add("声望 " + Signed(opt.ReputationDelta) + "（当前 " + Reputation + "）"); }
             if (opt.MaterialDelta != 0) { Materials = Clamp(Materials + opt.MaterialDelta, 0, GameStartParameters.MaxBuildingMaterials); effects.Add("建材 " + Signed(opt.MaterialDelta) + "（当前 " + Materials + "）"); }
             if (opt.RiskDelta != 0) { Risk = Clamp(Risk + opt.RiskDelta, 0, GameStartParameters.RiskThreshold); effects.Add("风险 " + Signed(opt.RiskDelta) + "（当前 " + Risk + "）"); }

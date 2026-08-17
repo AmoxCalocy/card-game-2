@@ -409,6 +409,9 @@ namespace OneJourney.Core
                 // A2-16：战斗胜利后同步伙伴状态并生成奖励
                 PartnerRoster.SyncFromCombat(PlayerTeam);
                 RunSession.SyncPlayerFromCombat(PlayerTeam);
+                // A2-21：首领遭遇胜利解锁城镇建筑
+                if (CurrentEncounterType == EncounterConfig.EncounterType.Boss)
+                    RunSession.MarkGrasslandBossDefeated();
                 RewardResolver.GenerateRewards(CurrentEncounterType, "草原");
                 // A2-20：资源奖励入账（来源/变化量/变化后总量入结算记录）
                 RunSession.ApplyCombatRewards();

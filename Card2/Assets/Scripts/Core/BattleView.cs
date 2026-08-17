@@ -28,6 +28,10 @@ namespace OneJourney.Core
         private TMP_Text _plunderText;
         private Button _endTurnButton;
         private Button _returnButton;
+        private Button _prevEncounterButton;
+        private Button _nextEncounterButton;
+        private Button _simulateVictoryButton;
+        private Button _simulateDefeatButton;
         private Transform _teamContainer;
         private Transform _enemyContainer;
         private Transform _handContainer;
@@ -68,6 +72,10 @@ namespace OneJourney.Core
                 ResolveRefs();
                 if (_endTurnButton != null) _endTurnButton.onClick.AddListener(OnEndTurn);
                 if (_returnButton != null) _returnButton.onClick.AddListener(OnReturn);
+                if (_prevEncounterButton != null) _prevEncounterButton.onClick.AddListener(OnPrevEncounter);
+                if (_nextEncounterButton != null) _nextEncounterButton.onClick.AddListener(OnNextEncounter);
+                if (_simulateVictoryButton != null) _simulateVictoryButton.onClick.AddListener(OnSimulateVictory);
+                if (_simulateDefeatButton != null) _simulateDefeatButton.onClick.AddListener(OnSimulateDefeat);
                 EnsureRewardPanel(canvasTr);
 
                 // 确保 HUD 渲染在最上层
@@ -128,6 +136,11 @@ namespace OneJourney.Core
             _endTurnButton = r.Find("TopBar/EndTurnBtn")?.GetComponent<Button>()
                 ?? r.Find("MainArea/EndTurnBtn")?.GetComponent<Button>();
             _returnButton = r.Find("MainArea/RightPanel/ReturnBtn")?.GetComponent<Button>();
+            // 测试入口遭遇翻页（BattlePage 顶部；TestPage 在战斗中隐藏，翻页按钮需在战斗页内）
+            _prevEncounterButton = r.Find("TopBar/Button_PrevEncounter")?.GetComponent<Button>();
+            _nextEncounterButton = r.Find("TopBar/Button_NextEncounter")?.GetComponent<Button>();
+            _simulateVictoryButton = r.Find("TopBar/Button_SimulateVictory")?.GetComponent<Button>();
+            _simulateDefeatButton = r.Find("TopBar/Button_SimulateDefeat")?.GetComponent<Button>();
             _teamContainer = r.Find("MainArea/TeamPanel");
             _enemyContainer = r.Find("MainArea/EnemyPanel");
             _handContainer = r.Find("BottomBar/HandCards");
@@ -499,6 +512,47 @@ namespace OneJourney.Core
             Hide();
             var ui = FindObjectOfType<GameUi>();
             if (ui != null) ui.ReturnToMenu();
+        }
+
+        // === 测试遭遇翻页（A1-12 测试辅助，战斗中重开战斗）===
+
+        private void OnPrevEncounter()
+        {
+            RunSession.PrevEncounter();
+            RunSession.RelaunchTestCombat();
+            Refresh();
+        }
+
+        private void OnNextEncounter()
+        {
+            RunSession.NextEncounter();
+            RunSession.RelaunchTestCombat();
+            Refresh();
+        }
+
+        // === 测试模拟胜负（A2-21：首领遭遇胜利解锁城镇建筑）===
+
+        private void OnSimulateVictory()
+        {
+            if (!CombatManager.IsActive) return;
+            foreach (var e in CombatManager.EnemyTeam)
+            {
+                if (e.IsAlive) e.TakeDamage(e.CurrentHp + e.Armor);
+            }
+
+            CombatManager.CheckEndCondition();
+            bool won = CombatManager.Phase == CombatPhase.Victory;
+            CombatManager.End();
+            Refresh(); // Ended → 隐藏战斗页
+            if (won) ShowRewardPage(); // 胜利弹出独立奖励页（CheckEndCondition 已记录战斗奖励）
+        }
+
+        private void OnSimulateDefeat()
+        {
+            if (!CombatManager.IsActive) return;
+            CombatManager.ForceDefeat();
+            // 不调 End：保持 Defeat 状态让战斗页显示失败结算（RefreshPostCombat）
+            Refresh();
         }
 
         // === 辅助 ===

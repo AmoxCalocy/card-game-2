@@ -75,13 +75,21 @@ namespace OneJourney.Core
 
         // === 内部 ===
 
-        private static void GenerateCardOptions(string region, int rareCount, int totalCount)
+        private static void AddToPool(List<CardDef> pool, string[] cardIds)
+        {
+            foreach (var id in cardIds)
+            {
+                var c = CardCatalog.Find(id);
+                if (c != null && !pool.Contains(c)) pool.Add(c);
+            }
+        }
+
+        /// <summary>构建区域战斗奖励卡池：区域来源卡（可选仅普通）+ 建筑奖励卡（B03/B04，A2-21）。</summary>
+        private static List<CardDef> BuildRegionPool(string region, bool commonOnly)
         {
             var pool = new List<CardDef>();
             foreach (var card in CardCatalog.All)
             {
-                bool isCommon = card.Rarity == CardRarity.Common;
-                bool isRare = card.Rarity == CardRarity.Rare || card.Rarity == CardRarity.Epic;
                 bool inPool = false;
 
                 if (card.SourceText.Contains(region + "奖励") || card.SourceText.Contains("初始"))
@@ -96,9 +104,34 @@ namespace OneJourney.Core
                     inPool = true;
 
                 if (!inPool) continue;
-                if (rareCount == 0 && !isCommon) continue;
+                if (commonOnly && card.Rarity != CardRarity.Common) continue;
                 pool.Add(card);
             }
+
+            // 建筑奖励池（B03 铁匠铺：C04/C11；B04 医馆：C34/C37/C40）加入所有后续战斗奖励
+            if (RunSession.HasBuilding("B03"))
+                AddToPool(pool, new[] { "C04", "C11" });
+            if (RunSession.HasBuilding("B04"))
+                AddToPool(pool, new[] { "C34", "C37", "C40" });
+
+            return pool;
+        }
+
+        /// <summary>检查指定卡是否在当前区域战斗奖励池中（A2-21 建筑奖励池验证）。</summary>
+        public static bool RewardPoolContains(string region, string cardId)
+        {
+            var pool = BuildRegionPool(region, commonOnly: false);
+            foreach (var c in pool)
+            {
+                if (c.Id == cardId) return true;
+            }
+
+            return false;
+        }
+
+        private static void GenerateCardOptions(string region, int rareCount, int totalCount)
+        {
+            var pool = BuildRegionPool(region, commonOnly: rareCount == 0);
 
             var rng = RunSession.Random;
             var selected = new List<CardDef>();

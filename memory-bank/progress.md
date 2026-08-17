@@ -1,3 +1,9 @@
+---
+id: kd_97c777f7-a9cc-42e0-b361-a45e568afc0d
+injectMode: inherit
+aiMaintained: inherit
+---
+
 # 实施进度
 
 ## 2026-08-05 · A0-1 固定项目运行基线（UI 部分，用户已验证）
@@ -74,7 +80,6 @@
   - `GameUi.cs` — 新增「抽 1 张牌」「弃掉手牌」「消耗最后一张」「生成临时卡」按钮加入 `CombatActions` 横向排列；手牌显示所有卡 ID 列表；`OnSimulateVictory`/`OnSimulateDefeat` 调用 `CombatManager.End()` 清空 Deck。
 - 修复：「消耗 1 点能量」改为能量 0 时置灰保留位置（不位移）；按钮内 Text 关闭 raycastTarget；手牌满时抽牌提示「手牌已满」。
 - 验证：Test Runner 全绿；Play 模式抽牌/弃牌/洗回/消耗/临时卡→弃掉进消耗区→模拟胜利 Deck 清空→重进不含临时卡。
-
 
 ## 2026-08-06 · A1-9 实现目标选择与伤害结算（用户已验证）
 - 完成：
@@ -217,5 +222,31 @@
 - 说明：遗物仅记录持有（R01/R02 效果 A2-22 接入）；卡牌升级仅标记（升级效果后续步骤接入）；事件战斗按普通遭遇奖励+事件额外奖励结算。
 - 验证：Test Runner 全绿（266 用例，含新增 57）。
 
+## 2026-08-17 · A2-20 接入财富、声望和建筑材料资源（用户已验证）
+- 完成：
+  - `RunSession.cs` — `ApplyCombatRewards`（战斗胜利资源钳制入账：财富/粮食/建材，来源/变化量/变化后总量入集中结算记录）+ `LastCombatRewardText`（结算页展示，Reset 清理）。
+  - `CombatManager.cs` — 胜利时调用 `ApplyCombatRewards`；`RewardResolver.SkipReward` 不再清资源（资源已在胜利时入账）。
+  - 独立奖励页（代码注释 A2-20.5）：`RewardPage.prefab`（新）+ `BattleView.ShowRewardPage`（标题「战斗胜利」/资源明细/卡牌 3 选 1/跳过/继续按钮）；真实出牌胜利与模拟胜利两条路径均自动弹出；战斗页结算区精简（胜利时左上角不再显示资源文本，失败提示保留）。
+  - `GameUi.cs` — 事件测试入口/地图页资源行统一为 `BuildResourceLine`（四资源含上限）；出牌与模拟胜利的记录不再覆盖「战斗奖励」结算记录（HUD 第 6 行显示最近结算）；事件测试入口补资源行。
+  - `CombatRewardTests.cs`（新）— 10 个 EditMode 用例（普通/精英/首领入账数值、上限钳制、防重复、结算记录内容、事件战斗叠加、跳过不丢资源、Reset 清理）。
+  - 场景：`TestPage` 按钮布局微调（用户多轮要求）：EncounterSwitchRow 上移至写入结算按钮上方、写入/返回按钮经 `SettlementRow` 容器控制间距（先紧贴后 8px）、整体上移（padding 30→20→0 + RectTransform 偏移 20px）、EncounterSwitchRow 高度 100→40（修复按钮溢出）。
+- 修复（原工作区半成品遗留的 3 个测试失败）：E13 建材期望 +3→+1（事件战斗按普通遭遇，普通奖励无建材）；`Rewards_ClampedAtCap` 补建材上限前置；`EventCombatVictory_AddsNormalAndEventRewards` 战斗态无法直接进事件页（GameFlow 禁止 Combat→Event），改用 `Reset()` 回主菜单再进。
+- 工程问题：`CardOptions`（无 Image/CanvasRenderer 的中间容器，仅挂 HorizontalLayoutGroup）下实例化的卡片**不渲染**——实测改色、强制 Canvas 重建、加透明/不透明 Image 均无效，reparent 到有 Image 的 RewardPage 根即正常 → 卡片改为挂奖励页根并手动布局（3 张间隔 224 居中）；`RewardDetail` 明细文字宽 200→全宽、高度 50→80→120、标题栏加高 300→360 且明细上移（避免第二行与卡片顶部重叠）。
+- 验证：Test Runner 全绿（276 用例，含新增 10）；Play 模式奖励页标题/明细/卡牌/跳过/继续、失败保留战斗页均正常。
+
+## 2026-08-17 · A2-21 实现营地与城镇一阶建筑（用户已验证）
+- 完成：
+  - `BuildingCatalog.cs`（新）— 5 座一阶建筑静态目录（配置表 §8）：B01 储粮帐篷（3 建材）/ B02 野战医棚（20 财 3 建材）/ B03 铁匠铺（30 财 5 建材 5 声望，需首领）/ B04 医馆（25 财 4 建材 5 声望，需首领）/ B05 市集（30 财 5 建材 5 声望，需首领），含成本/前置/效果文本。
+  - `RunSession.cs` — 建筑系统：`BuiltBuildings`/`HasBuilding`/`BuildBlockReason`（成本/前置/重复三查）/`TryBuildBuilding`（成功才扣资源+记录）/`MarkGrasslandBossDefeated`（首领遭遇胜利解锁城镇建筑）/`EnterCampNode`（营地节点结算：风险 -2 + B01 首次粮食 +4）/`CampfireRest`（S01 篝火休整：移除 1 疲劳；生命 25% 部分留待战役生命系统）/`CampClinic`（B02 移除疾病）/`TownClinic`（B04 移除疾病或疲劳）/`FreeUpgradeCard`（B03 首次建成免费升级 1 张卡）；B05 事件财富首次 +5 接入 `ApplyEventOptionEffects`。
+  - `CombatManager.cs` — 首领遭遇（Boss）胜利调用 `MarkGrasslandBossDefeated`。
+  - `RewardResolver.cs` — 池逻辑重构为 `BuildRegionPool`（区域来源 + 建筑奖励卡 B03：C04/C11、B04：C34/C37/C40）；新增 `RewardPoolContains`（池内容直查）。
+  - `GameUi.cs` — 营地页：`ShowCampPage`/`RefreshCampButtons`（篝火休整/查看牌组（含数量与升级标记 ★）/建筑建造与服务入口/免费升级/离开营地，子选择模式 Rest/ClinicCamp/ClinicTown/FreeUpgrade/DeckView）；`OnMapNodeClicked` 营地节点进入（状态转移 Move→Camp）；营地页隐藏测试按钮行与其他动态容器。
+  - `BattleView.cs`/`BattlePage.prefab` — 战斗页顶部新增「◀ 上一组 / 下一组 ▶ / 模拟胜利 / 模拟失败」按钮（TestPage 在战斗中隐藏，原按钮不可见）；模拟胜利弹奖励页、失败留战斗页。
+  - 场景：`CampOptions` 容器（Canvas 固定中部面板，营地页显示）；TestHud 文本 raycastTarget 关闭（拦截战斗页按钮点击）。
+  - `BuildingTests.cs`（新）— 20 个 EditMode 用例（目录完整性/建造成功扣费/资源不足拒绝/重复建造/首领前置/首领后建造/B01 首次粮/B01 二次不给/营地风险 -2/篝火休整/医棚/免费升级/建筑卡跨区域进池（用户补充 2 例）/B05 事件财富 +5/Reset 清理）。
+- 修复：`RelaunchTestCombat`（状态已在 Combat 时直接重开，绕过 Combat→Combat 非法转移）；遭遇索引负值越界（安全取模）；首领击败标记跨测试入口保留（Reset 不清、StartNewGame 清零——战斗胜利 → 营地页联动）；营地测试入口补调试资源（建材 10/财富 50/声望 10）便于 Play 验证建造。
+- 说明：城镇建筑前置「草原首领已击败」由首领遭遇胜利置位；城镇独立页面入口留待 A2-23 区域过渡；存档持久化留待 A2-25；S01 生命恢复与 B02 受伤移除留待战役生命系统。
+- 验证：Test Runner 全绿（296 用例，含新增 20）；Play 链路：战斗测试 → 首领胜利 → 营地页城镇建筑解锁可建造 ✓。
+
 ## 进行中
-- 下一步：A2-20 接入财富、声望和建筑材料资源（等待用户指示开始）。
+- 下一步：A2-22 制作 8 件 MVP 遗物（等待用户指示开始）。
