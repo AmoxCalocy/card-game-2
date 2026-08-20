@@ -5472,6 +5472,7 @@ MonoBehaviour:
   _enemyCardPrefab: {fileID: 4208501776571738369, guid: ff8eb7382d75943418c9244a92c393e0, type: 3}
   _skipRewardButtonPrefab: {fileID: 8250057527880580244, guid: 6b5574c5d2da6ff4a82b42ffd370a07b, type: 3}
   _rewardPagePrefab: {fileID: 7659987090076448744, guid: 0ab75ac180e79d64d8255d7ea0a5ef60, type: 3}
+  _relicRewardPrefab: {fileID: 578056385634603407, guid: 1d98fd1c7b5129b47b21002d15e42bb1, type: 3}
 --- !u!1 &1373307187
 GameObject:
   m_ObjectHideFlags: 0

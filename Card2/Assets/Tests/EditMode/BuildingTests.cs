@@ -10,6 +10,8 @@ namespace OneJourney.Tests.EditMode
         public void SetUp()
         {
             RunSession.Reset();
+            RunSession.Relics.Clear(); // 遗物跨测试入口保留，建筑测试间需隔离
+            RunSession.SetBossDefeatedForTest(false); // 首领标记跨测试保留，建筑测试需隔离
             RunSession.EnterTestPage(GameState.Camp); // 起始：粮 14 / 财 30 / 建材 0 / 声望 0
             ContentRegistry.Clear();
         }

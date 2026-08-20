@@ -75,8 +75,14 @@ namespace OneJourney.Core
         /// <summary>本回合下一张牌费用减免（C19 节能，出牌后清零）。</summary>
         public static int CostReductionRemaining { get; set; }
 
-        /// <summary>当前遭遇类型（用于奖励生成）。</summary>
+        /// <summary>当前遭遇类型（用于奖励生成与遗物触发）。</summary>
         public static EncounterConfig.EncounterType CurrentEncounterType { get; set; }
+
+        // A2-22 遗物战斗级触发标记（每场战斗重置）
+        /// <summary>R06 狼牙坠饰：本场战斗主角首次普通伤害加成已用。</summary>
+        public static bool RelicWolfUsedThisCombat { get; set; }
+        /// <summary>R07 指挥旗：本场战斗首次战术卡减费已用。</summary>
+        public static bool RelicFlagUsedThisCombat { get; set; }
 
         public static int AddPlunder(int stacks)
         {
@@ -132,7 +138,33 @@ namespace OneJourney.Core
             Phase = CombatPhase.Running;
             RunRecord.Log(RecordCategory.General, "战斗开始：玩家 " + PlayerTeam.Count + " 人 vs 敌人 " + EnemyTeam.Count + " 个，牌组 " + campaignDeck.Count + " 张");
 
+            // A2-22 遗物战斗开始效果
+            ApplyCombatStartRelics();
+
             BeginPlayerTurn();
+        }
+
+        /// <summary>战斗开始遗物效果：R03 琥珀护符（全队 +3 护甲）；R08 不熄灯（首领战队伍 +2 士气）。</summary>
+        private static void ApplyCombatStartRelics()
+        {
+            if (RunSession.HasRelic("R03"))
+            {
+                foreach (var u in PlayerTeam)
+                {
+                    if (u.IsAlive)
+                    {
+                        u.AddArmor(3);
+                    }
+                }
+
+                RunRecord.Log(RecordCategory.General, "遗物琥珀护符：全队获得 3 护甲");
+            }
+
+            if (RunSession.HasRelic("R08") && CurrentEncounterType == EncounterConfig.EncounterType.Boss)
+            {
+                AddMorale(2);
+                RunRecord.Log(RecordCategory.General, "遗物不熄灯：首领战开始，队伍获得 2 层士气");
+            }
         }
 
         // ------- 回合流转 -------
@@ -452,6 +484,8 @@ namespace OneJourney.Core
             Plunder = 0;
             PendingBonusDraw = 0;
             CostReductionRemaining = 0;
+            RelicWolfUsedThisCombat = false;
+            RelicFlagUsedThisCombat = false;
             PlayerTeam = null;
             EnemyTeam = null;
             Deck = null;

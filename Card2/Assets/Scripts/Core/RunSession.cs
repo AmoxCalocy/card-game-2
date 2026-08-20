@@ -96,6 +96,11 @@ namespace OneJourney.Core
         private static bool _eventWealthBonusUsedThisRegion; // B05：本区域首次事件财富加成已用
         private static bool _freeUpgradePending;             // B03：首次建成后的免费升级待用
 
+        // 遗物区域级触发标记（A2-22，配置表 §7）
+        private static bool _relicCampFoodUsedThisRegion;    // R02：本区域首次进营地粮 +4 已用
+        private static bool _relicClinicUsedThisRegion;      // R04：本区域首次进营地治疗已用
+        private static bool _relicEventWealthUsedThisRegion; // R05：本区域首次事件财富 +5 已用
+
         /// <summary>营地页最近一次结算文本（展示用）。</summary>
         public static string LastCampResult { get; private set; }
 
@@ -142,6 +147,7 @@ namespace OneJourney.Core
             RecordsList.Clear();
             InitCampaignResources();
             GrasslandBossDefeated = false; // 新局首领击败标记清零（测试入口间保留的进度在新局不继承）
+            Relics.Clear(); // 新局遗物清零（测试入口间保留的遗物在新局不继承）
             if (CampaignDeck == null)
                 CampaignDeck = new CampaignDeck(GameStartParameters.StartingDeck);
 
@@ -196,6 +202,8 @@ namespace OneJourney.Core
             else if (page == GameState.Camp)
             {
                 // 测试入口营地页：补齐建造用调试资源（建材/财富/声望），便于 Play 验证建筑
+                if (CampaignDeck == null)
+                    CampaignDeck = new CampaignDeck(GameStartParameters.StartingDeck);
                 Materials = System.Math.Max(Materials, 10);
                 Wealth = System.Math.Max(Wealth, 50);
                 Reputation = System.Math.Max(Reputation, 10);
@@ -258,8 +266,9 @@ namespace OneJourney.Core
             if (CampaignDeck == null)
                 CampaignDeck = new CampaignDeck(GameStartParameters.StartingDeck);
             var deck = CampaignDeck.CloneCardList();
-            CombatManager.Init(team, enemies, deck);
+            // 先设遭遇类型（战斗内遗物/奖励按此判断），再初始化战斗
             CombatManager.CurrentEncounterType = cfg.Type;
+            CombatManager.Init(team, enemies, deck);
 
             RecordResolution(
                 "战斗初始化",
@@ -328,7 +337,8 @@ namespace OneJourney.Core
             PendingEventChoice = EventOptionChoiceKind.None;
             PendingEventOptionIndex = -1;
             _testEventIndex = 0;
-            Relics.Clear();
+            _testEncounterIndex = 0; // 翻页索引随重置归零，避免跨测试/跨局泄漏
+            // 遗物跨测试入口保留（与首领击败标记一致，测试入口共享战役进度；新游戏 StartNewGame 时清零）
             _pendingEventCombatReward = null;
             LastCombatRewardText = null;
             BuiltBuildings.Clear();
@@ -336,6 +346,9 @@ namespace OneJourney.Core
             _campBonusUsedThisRegion = false;
             _eventWealthBonusUsedThisRegion = false;
             _freeUpgradePending = false;
+            _relicCampFoodUsedThisRegion = false;
+            _relicClinicUsedThisRegion = false;
+            _relicEventWealthUsedThisRegion = false;
             LastCampResult = null;
             Changed?.Invoke();
         }
@@ -354,8 +367,11 @@ namespace OneJourney.Core
             CurrentEvent = null;
             PendingEventChoice = EventOptionChoiceKind.None;
             PendingEventOptionIndex = -1;
-            Relics.Clear();
+            // 遗物不清空：测试入口之间共享战役进度（新游戏 StartNewGame 时统一清零）
             _pendingEventCombatReward = null;
+            _relicCampFoodUsedThisRegion = false;
+            _relicClinicUsedThisRegion = false;
+            _relicEventWealthUsedThisRegion = false;
         }
 
         // ---- 事件（A2-19，配置表 §6）----
@@ -711,6 +727,31 @@ namespace OneJourney.Core
             return BuiltBuildings.Contains(id);
         }
 
+        // === 遗物（A2-22，配置表 §7）===
+
+        /// <summary>获得遗物（去重；事件授予与测试入口共用）。</summary>
+        public static void AddRelic(string id)
+        {
+            if (!Relics.Contains(id)) Relics.Add(id);
+        }
+
+        public static bool HasRelic(string id)
+        {
+            return Relics.Contains(id);
+        }
+
+        /// <summary>测试辅助：直接获得指定遗物（去重）。</summary>
+        public static void AddRelicForTest(string id)
+        {
+            AddRelic(id);
+        }
+
+        /// <summary>测试辅助：重置首领击败标记（BuildingTests 隔离用；正式流程由 MarkGrasslandBossDefeated 控制）。</summary>
+        public static void SetBossDefeatedForTest(bool value)
+        {
+            GrasslandBossDefeated = value;
+        }
+
         /// <summary>首领遭遇胜利时调用（城镇建筑前置解锁）。</summary>
         public static void MarkGrasslandBossDefeated()
         {
@@ -753,7 +794,7 @@ namespace OneJourney.Core
             return LastCampResult;
         }
 
-        /// <summary>进入营地节点结算（A2-21）：风险 -2；B01 建成时本区域首次进营地粮食 +4。</summary>
+        /// <summary>进入营地节点结算（A2-21/A2-22）：风险 -2；B01 建成时本区域首次进营地粮食 +4；R02 铁锅同理。</summary>
         public static string EnterCampNode()
         {
             var effects = new System.Collections.Generic.List<string>();
@@ -765,6 +806,13 @@ namespace OneJourney.Core
                 _campBonusUsedThisRegion = true;
                 Food = Clamp(Food + 4, 0, GameStartParameters.MaxFood);
                 effects.Add("储粮帐篷：粮食 +4（当前 " + Food + "）");
+            }
+
+            if (HasRelic("R02") && !_relicCampFoodUsedThisRegion)
+            {
+                _relicCampFoodUsedThisRegion = true;
+                Food = Clamp(Food + 4, 0, GameStartParameters.MaxFood);
+                effects.Add("铁锅：粮食 +4（当前 " + Food + "）");
             }
 
             string result = string.Join("；", effects);
@@ -807,6 +855,18 @@ namespace OneJourney.Core
         public static string TownClinic(string unitId, bool removeDisease)
         {
             return BuildingStatusService(unitId, removeDisease, "医馆");
+        }
+
+        /// <summary>R04 医师药箱：每区域首次进营地时选择 1 名存活单位移除 1 层疾病或疲劳。</summary>
+        public static bool RelicClinicAvailable => HasRelic("R04") && !_relicClinicUsedThisRegion;
+
+        public static string RelicClinic(string unitId, bool removeDisease)
+        {
+            if (!RelicClinicAvailable) return "医师药箱本区域已使用";
+            _relicClinicUsedThisRegion = true;
+            string result = BuildingStatusService(unitId, removeDisease, "医师药箱");
+            LastCampResult = "医师药箱：" + result;
+            return LastCampResult;
         }
 
         private static string BuildingStatusService(string unitId, bool removeDisease, string source)
@@ -941,10 +1001,16 @@ namespace OneJourney.Core
             if (opt.WealthDelta != 0)
             {
                 int wealthGain = opt.WealthDelta;
-                // B05 市集：每个区域首次通过事件获得财富时额外 +5
+                // B05 市集 + R05 商队印记：每个区域首次通过事件获得财富时各额外 +5（可叠加）
                 if (wealthGain > 0 && HasBuilding("B05") && !_eventWealthBonusUsedThisRegion)
                 {
                     _eventWealthBonusUsedThisRegion = true;
+                    wealthGain += 5;
+                }
+
+                if (wealthGain > 0 && HasRelic("R05") && !_relicEventWealthUsedThisRegion)
+                {
+                    _relicEventWealthUsedThisRegion = true;
                     wealthGain += 5;
                 }
 
@@ -1038,8 +1104,9 @@ namespace OneJourney.Core
             if (CampaignDeck == null)
                 CampaignDeck = new CampaignDeck(GameStartParameters.StartingDeck);
             var deck = CampaignDeck.CloneCardList();
-            CombatManager.Init(team, enemies, deck);
+            // 先设遭遇类型（事件战斗按普通遭遇奖励），再初始化战斗
             CombatManager.CurrentEncounterType = EncounterConfig.EncounterType.Normal;
+            CombatManager.Init(team, enemies, deck);
             GameFlow.TryTransition(GameState.Combat, "事件触发战斗：" + opt.CombatLabel);
         }
 

@@ -11,6 +11,7 @@ namespace OneJourney.Tests.EditMode
         public void SetUp()
         {
             RunSession.Reset();
+            RunSession.Relics.Clear(); // 遗物跨测试入口保留，事件测试间需隔离
             RunSession.EnterTestPage(GameState.Event);
             ContentRegistry.Clear();
         }

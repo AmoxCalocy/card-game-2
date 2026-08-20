@@ -91,7 +91,7 @@ namespace OneJourney.Tests.EditMode
         public void GenerateRewards_Elite_HasRareCard()
         {
             RewardResolver.GenerateRewards(EncounterConfig.EncounterType.Elite, "草原");
-            Assert.AreEqual(3, RewardResolver.PendingOptions.Count);
+            Assert.AreEqual(5, RewardResolver.PendingOptions.Count); // 3 卡 + 2 遗物（A2-22）
             Assert.AreEqual(10, RewardResolver.PendingWealth);
         }
 

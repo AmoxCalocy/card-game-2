@@ -60,7 +60,7 @@ namespace OneJourney.Core
         [Header("营地页（A2-21）")]
         [SerializeField] private Transform _campOptionContainer;
 
-        private enum CampPageMode { None, Rest, ClinicCamp, ClinicTown, FreeUpgrade, DeckView }
+        private enum CampPageMode { None, Rest, ClinicCamp, ClinicTown, ClinicRelic, FreeUpgrade, DeckView }
         private CampPageMode _campMode;
 
         [Header("事件选项（A2-19）")]
@@ -299,7 +299,8 @@ namespace OneJourney.Core
             RefreshHandCards();
             // A2-21：营地页只显示营地内容，隐藏其他动态容器与测试按钮区块
             bool isCamp = RunSession.CurrentState == GameState.Camp;
-            if (_handCardContainer != null) _handCardContainer.gameObject.SetActive(!isCamp);
+            // 手牌容器仅在营地页强制隐藏；非营地页由 RefreshHandCards 决定（仅战斗状态显示）
+            if (_handCardContainer != null && isCamp) _handCardContainer.gameObject.SetActive(false);
             if (_mapNodeContainer != null) _mapNodeContainer.gameObject.SetActive(!isCamp);
             if (_eventOptionContainer != null) _eventOptionContainer.gameObject.SetActive(!isCamp);
             var pagePanel = _pagePanel != null ? _pagePanel.transform : transform;
@@ -879,6 +880,7 @@ namespace OneJourney.Core
                 if (_campMode == CampPageMode.Rest) RenderCampStatusUnits(defaultFont, true, false);
                 else if (_campMode == CampPageMode.ClinicCamp) RenderCampStatusUnits(defaultFont, false, true);
                 else if (_campMode == CampPageMode.ClinicTown) RenderCampStatusUnits(defaultFont, true, true);
+                else if (_campMode == CampPageMode.ClinicRelic) RenderCampStatusUnits(defaultFont, true, true);
                 else if (_campMode == CampPageMode.FreeUpgrade) RenderCampUpgradeCards(defaultFont);
                 else if (_campMode == CampPageMode.DeckView) RenderCampDeck(defaultFont);
 
@@ -939,6 +941,13 @@ namespace OneJourney.Core
                 }
             }
 
+            // R04 医师药箱：每区域首次进营地可选移除疾病/疲劳
+            if (RunSession.RelicClinicAvailable)
+            {
+                var clinic = MakeCampButton(defaultFont, "医师药箱：移除疾病/疲劳（每区域一次）", false);
+                clinic.GetComponent<Button>().onClick.AddListener(() => { _campMode = CampPageMode.ClinicRelic; ShowCampPage(""); });
+            }
+
             var ret = MakeCampButton(defaultFont, "离开营地", false);
             ret.GetComponent<Button>().onClick.AddListener(OnCampLeave);
         }
@@ -980,6 +989,7 @@ namespace OneJourney.Core
             string result;
             if (_campMode == CampPageMode.Rest) result = RunSession.CampfireRest(unitId);
             else if (_campMode == CampPageMode.ClinicCamp) result = RunSession.CampClinic(unitId);
+            else if (_campMode == CampPageMode.ClinicRelic) result = RunSession.RelicClinic(unitId, removeDisease);
             else result = RunSession.TownClinic(unitId, removeDisease);
             _campMode = CampPageMode.None;
             ShowCampPage(result);

@@ -9,6 +9,18 @@ namespace OneJourney.Core
     /// </summary>
     public static class CombatResolver
     {
+        /// <summary>R06 狼牙坠饰：每场战斗首次普通伤害额外加成。</summary>
+        public const int RelicWolfBonus = 3;
+
+        /// <summary>是否为战术卡（C25-C32，配置表 §3.4；R07 指挥旗判定）。</summary>
+        public static bool IsTacticalCard(string cardId)
+        {
+            if (string.IsNullOrEmpty(cardId) || cardId.Length < 2 || cardId[0] != 'C')
+                return false;
+            if (!int.TryParse(cardId.Substring(1), out int n)) return false;
+            return n >= 25 && n <= 32;
+        }
+
         /// <summary>
         /// 解析某目标类型的合法目标列表（仅存活单位）。
         /// 无合法目标时 issue 非空并返回空列表。
@@ -79,6 +91,14 @@ namespace OneJourney.Core
                 CombatManager.ClearMorale();
                 CombatManager.MarkMoraleUsed();
                 RunRecord.Log(RecordCategory.General, "士气触发，伤害 +" + bonus);
+            }
+
+            // R06 狼牙坠饰：每场战斗中首次造成普通伤害时该次伤害 +3（与士气可叠加；需持有遗物）
+            if (fromPlayer && RunSession.HasRelic("R06") && !CombatManager.RelicWolfUsedThisCombat)
+            {
+                CombatManager.RelicWolfUsedThisCombat = true;
+                amount += RelicWolfBonus;
+                RunRecord.Log(RecordCategory.General, "遗物狼牙坠饰触发，伤害 +" + RelicWolfBonus);
             }
 
             // 集火标记（仅玩家来源伤害）
@@ -178,6 +198,15 @@ namespace OneJourney.Core
 
             // 费用计算（含减费）
             int actualCost = card.Cost;
+
+            // R07 指挥旗：每场战斗中首次打出的战术卡（C25-C32）费用 -1，最低为 0
+            if (!CombatManager.RelicFlagUsedThisCombat && IsTacticalCard(cardId) && actualCost > 0)
+            {
+                CombatManager.RelicFlagUsedThisCombat = true;
+                actualCost--;
+                RunRecord.Log(RecordCategory.General, "遗物指挥旗触发，战术卡费用 -1");
+            }
+
             if (CombatManager.CostReductionRemaining > 0)
             {
                 int reduction = System.Math.Min(actualCost, CombatManager.CostReductionRemaining);

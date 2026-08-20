@@ -1,7 +1,7 @@
 ---
 id: kd_16876443-f2bb-491f-9661-53b0cba3b249
 injectMode: inherit
-aiMaintained: inherit
+aiEditMode: inherit
 ---
 
 # 架构与文件职责（截至 2026-08-17）
@@ -53,7 +53,7 @@ aiMaintained: inherit
 - `CombatStatus.cs` — 状态规则统一入口：上限常量（流血 5/士气 3/疾病 3/疲劳 3/护甲 30）、每层效果（疾病 -4 最大生命/疲劳 -5 护甲上限 -1 指令伤害/士气 +2 伤害）、施加叠加（钳上限、不作用于死亡单位、疾病钳当前生命、疲劳钳护甲）、移除、`TriggerTurnStartBleed`（真实伤害=层数，伤害后 -1，致死触发结束检查）、`TriggerTeamTurnStartBleed`。
 - `CombatStatusTests.cs` — 16 个 EditMode 用例：流血叠加/真实伤害/衰减/致死/死亡不施加/疾病上限钳制/疲劳上限钳制/士气加成重置/多状态共存顺序。
 - `CampaignDeck.cs` — 战役牌组（A2-16）：战斗外持久化卡牌集合；`AddCard`（≤30）/`RemoveCard`/`RemoveCardAt`（≥10）/`CloneCardList`；A2-19：`IsInitialLockedCard`（初始牌组锁定，不可被事件移除）/`HasRemoveableCard`/`RemoveableCards`（事件移除卡选项）/`UpgradedCards`+`UpgradeCard`（升级标记，同卡仅一次）。
-- `RewardResolver.cs` — 战斗奖励（A2-16）：按遭遇类型生成资源+卡牌选项；`PendingOptions`/`ClaimCard`（选一清空）/`SkipReward`/`Clear`；A2-20：资源奖励由 `RunSession.ApplyCombatRewards` 在胜利时钳制入账（跳过只放弃卡牌）；A2-21：池逻辑重构为 `BuildRegionPool(region, commonOnly)`（区域来源卡 + 建筑奖励卡 B03：C04/C11、B04：C34/C37/C40 跨区域进池），新增 `RewardPoolContains(region, cardId)` 池内容直查。
+- `RewardResolver.cs` — 战斗奖励（A2-16）：按遭遇类型生成资源+卡牌选项；`PendingOptions`/`ClaimCard`（选一清空）/`SkipReward`/`Clear`；A2-20：资源奖励由 `RunSession.ApplyCombatRewards` 在胜利时钳制入账（跳过只放弃卡牌）；A2-21：池逻辑重构为 `BuildRegionPool(region, commonOnly)`（区域来源卡 + 建筑奖励卡 B03：C04/C11、B04：C34/C37/C40 跨区域进池），新增 `RewardPoolContains(region, cardId)` 池内容直查；A2-22：遗物奖励（配置表 §5.1）精英 +2 件、首领 +3 件（`GenerateRelicOptions`：未持有池、已持有不重复、BossOnly 仅首领出），`RewardOption.RelicId` + `ClaimRelic`。
 - `PartnerDef.cs` / `PartnerRoster.cs` — 伙伴系统（A2-15）：8 名伙伴静态定义 + 运行时状态（招募/上阵/HP/疾病/疲劳/忠诚度）；`BuildCombatTeam`（伙伴在前旅人第二位）/`SyncFromCombat`/`InitTestRoster`。
 - `CardCatalogTests.cs` — 27 个 EditMode 用例（A1-13）：目录完整性（6）/ 出牌基础流程（5）/ 各类卡牌效果（14）/ 边界与特殊机制（2）。
 - `PartnerRosterTests.cs` — 15 个 EditMode 用例（A2-15）：数据完整性/招募/上阵上限/未招募拒绝/死亡拒绝/BuildCombatTeam/SyncFromCombat/Clear。
@@ -61,6 +61,12 @@ aiMaintained: inherit
 - `EnemyUnit.cs` — 敌人单位（继承 CombatUnit）：`EnemyIntentExec`（攻击/全体攻击/防御/掠夺 + 副作用 BleedStacks/DiseaseStacks + 诱饵标记 `TargetsPlayer`）+ `RollIntent`（种子驱动加权抽取）+ 10 种敌人工厂（EN01-EN10，按配置表 §5）；`Clone` 重写深拷贝意图。
 - `EnemyIntentTests.cs` — 12 个 EditMode 用例：同意图/零权重/首回合揭示/攻击/防御/掠夺/AOE/死敌跳过/无目标/默认目标选择/士气隔离。
 - `EncounterConfig.cs` — 9 组遭遇表（草原普通×2/精英/首领，密林普通×3/精英/首领，含标签/区域/类型）；`RunSession._testEncounterIndex` 翻页选择。
+
+## 遗物系统（A2-22）
+- `RelicCatalog.cs` — 8 件遗物静态目录（配置表 §7）：`RelicDef`（Id/DisplayName/EffectText/BossOnly）；R01 旅人罗盘（地图显示全部节点，MVP 天然生效）/R02 铁锅（每区域首次进营地粮 +4）/R03 琥珀护符（每场战斗开始全队 +3 护甲）/R04 医师药箱（每区域首次进营地移除疾病或疲劳）/R05 商队印记（每区域首次事件财富 +5）/R06 狼牙坠饰（每场首次普通伤害 +3）/R07 指挥旗（每场首张战术卡 -1 费）/R08 不熄灯（BossOnly，首领战开始 +2 士气）。
+- 触发接入：`RunSession.Relics`（持有记录，**跨测试入口保留**、新游戏 `StartNewGame` 清零）+ `AddRelic`/`HasRelic`；R02 在 `EnterCampNode`（与 B01 叠加 +8）、R04 `RelicClinicAvailable`/`RelicClinic`（区域级一次）、R05 在 `ApplyEventOptionEffects`（与 B05 市集叠加，事件财富首次 +10）；`CombatManager.ApplyCombatStartRelics`（R03 全队护甲、R08 首领战士气）+ 战斗级标记 `RelicWolfUsedThisCombat`/`RelicFlagUsedThisCombat`（End 重置）；`CombatResolver` R06（首伤 +3，`RelicWolfBonus` 常量）+ R07（首张战术卡 C25-C32 减 1 费）+ `IsTacticalCard`；`Init` 内 `CurrentEncounterType` 先于战斗开始应用（R08 判断首领战）。
+- 奖励接入：`RewardResolver.GenerateRelicOptions`（精英 2 / 首领 3，已持有不重复）；`BattleView.ShowRewardPage` 渲染金色遗物条目（`RelicReward.prefab`，点击 `ClaimRelic` 加入持有）。
+- `RelicTests.cs` — 26 个 EditMode 用例：目录/每件触发时点与一次性/叠加（R02+B01、R05+B05）/奖励生成与领取/战斗级标记重置/Reset 保留+新局清零。
 
 ## 建筑系统（A2-21）
 - `BuildingCatalog.cs` — 5 座一阶建筑静态目录（配置表 §8）：`BuildingDef`（Id/DisplayName/Type 营地或城镇/CostWealth/CostMaterial/CostReputation/RequiresBossDefeated/EffectText）；B01 储粮帐篷（3 建材）/B02 野战医棚（20 财 3 建材）/B03 铁匠铺（30 财 5 建材 5 声望，需首领）/B04 医馆（25 财 4 建材 5 声望，需首领）/B05 市集（30 财 5 建材 5 声望，需首领）；`Find(id)`。
@@ -75,8 +81,8 @@ aiMaintained: inherit
 - `EventTests.cs` — 57 个 EditMode 用例：目录完整性/每选项结算/条件不满足/事件战斗胜利与失败/子选择/忠诚规则/钳制。
 
 ## UI 结构（场景组件化 + Prefab 驱动）
-- `GameUi.cs` — 场景 UI 驱动：`[SerializeField]` 持有面板/HUD/标题/描述/按钮/`_battleView`/`_mapNodeContainer`/`_eventOptionContainer`/`_campOptionContainer`；`ShowPage` 战斗中委托 `BattleView`（营地页时隐藏测试按钮行与动态容器、显示营地面板）；`ReturnToMenu()` 公开供 BattleView 调用（含隐藏营地面板）；`Refresh` 同步刷新 BattleView；`OnMapNodeClicked` 走 `RunSession.TryMoveToNode` 并在事件节点进入事件页、营地节点进入营地页（Move→Camp 状态转移）；`RefreshEventOptions` 动态渲染事件选项与子选择列表；`ShowCampPage`/`RefreshCampButtons`（篝火休整/查看牌组/建造/服务/免费升级/离开，子模式 Rest/ClinicCamp/ClinicTown/FreeUpgrade/DeckView）。
-- `BattleView.cs` — 战斗界面独立控制器（A1-14）：从 `_battlePagePrefab` 运行时实例化 BattlePage；管理手牌/单位卡片生命周期；处理出牌/选目标/结束回合/返回菜单交互；A2-20：`ShowRewardPage`（独立奖励页：标题/资源明细/卡牌 3 选 1/跳过/继续，胜利后自动弹出，`_combatWon` 标记支撑模拟胜利路径）；A2-21：顶部测试按钮（◀ 上一组/下一组 ▶ 翻页重开、模拟胜利/失败）。子组件通过 `ResolveRefs()` 自动解析。
+- `GameUi.cs` — 场景 UI 驱动：`[SerializeField]` 持有面板/HUD/标题/描述/按钮/`_battleView`/`_mapNodeContainer`/`_eventOptionContainer`/`_campOptionContainer`；`ShowPage` 战斗中委托 `BattleView`（营地页时隐藏测试按钮行与动态容器、显示营地面板；手牌容器仅营地页强制隐藏，非营地页由 `RefreshHandCards` 按战斗状态决定）；`ReturnToMenu()` 公开供 BattleView 调用（含隐藏营地面板）；`Refresh` 同步刷新 BattleView；`OnMapNodeClicked` 走 `RunSession.TryMoveToNode` 并在事件节点进入事件页、营地节点进入营地页（Move→Camp 状态转移）；`RefreshEventOptions` 动态渲染事件选项与子选择列表；`ShowCampPage`/`RefreshCampButtons`（篝火休整/查看牌组/建造/服务/免费升级/医师药箱 R04/离开，子模式 Rest/ClinicCamp/ClinicTown/ClinicRelic/FreeUpgrade/DeckView）。
+- `BattleView.cs` — 战斗界面独立控制器（A1-14）：从 `_battlePagePrefab` 运行时实例化 BattlePage；管理手牌/单位卡片生命周期；处理出牌/选目标/结束回合/返回菜单交互；A2-20：`ShowRewardPage`（独立奖励页：标题/资源明细/卡牌/跳过/继续，胜利后自动弹出，`_combatWon` 标记支撑模拟胜利路径）；A2-21：顶部测试按钮（◀ 上一组/下一组 ▶ 翻页重开、模拟胜利/失败）；A2-22：奖励页金色遗物条目（`_relicRewardPrefab` 实例化，名称/效果填充、点击领取）。子组件通过 `ResolveRefs()` 自动解析。
 - HUD（TestHud，尺寸 680×300）：7 行文本——随机种子 / 当前状态 / 当前配置 / 最近一次规则结算 / 最近状态切换（最近 3 条）/ 内容校验状态（OK 或 N 个问题+首个）/ 本局记录（N 条+最新类别 #序号）。
 - Canvas：ScreenSpaceOverlay + CanvasScaler（1920×1080，match 0.5）。**子对象顺序即渲染顺序**：MainMenu → BattlePage(运行时) → TestPage → TestHud（HUD 在顶层）。
 - MainMenu：ScrollRect + Viewport(RectMask2D) + Content(VerticalLayoutGroup)，增删按钮自动重排。
@@ -86,6 +92,7 @@ aiMaintained: inherit
 ## 战斗界面 Prefab（A1-14 / A2-20 / A2-21）
 - `Assets/Prefabs/BattlePage.prefab` — 五区块布局（全部 TMP）：TopBar（TurnInfo/Energy/Morale/Plunder/EndTurnBtn + 测试按钮：◀ 上一组/下一组 ▶/模拟胜利/模拟失败）/ MainArea（TeamPanel/EnemyPanel/RightPanel+ReturnBtn）/ BottomBar（DrawPile/HandCards/DiscardPile）。
 - `Assets/Prefabs/RewardPage.prefab` — 独立奖励页（A2-20）：TitleBar（战斗胜利标题 + 资源明细，明细文字全宽）/ CardOptions（空容器，卡片改为挂奖励页根手动布局——无 CanvasRenderer 中间容器下实例化 UI 不渲染的工程坑）/ BottomBar（跳过/继续）。
+- `Assets/Prefabs/RelicReward.prefab` — 遗物奖励条目（A2-22）：金色条目（名称 + 效果文字，TMP 字体内置），奖励页实例化并手动定位。
 - `Assets/Prefabs/HandCard.prefab` — 手牌卡片（TMP）：TopBar(类型色)/ CostRow(Cost/Name) / Effect。
 - `Assets/Prefabs/UnitCard.prefab` — 队伍单位卡片（TMP）：TopBar / Name / HP / Status / Intent。
 - `Assets/Prefabs/EnemyCard.prefab` — 敌人卡片（TMP，结构同 UnitCard，独立样式）。

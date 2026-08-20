@@ -8,6 +8,7 @@ namespace OneJourney.Core
         public string Label;
         public string Detail;
         public string CardId;    // 卡牌奖励（可空）
+        public string RelicId;   // 遗物奖励（A2-22，可空）
     }
 
     /// <summary>
@@ -40,6 +41,7 @@ namespace OneJourney.Core
                 case EncounterConfig.EncounterType.Elite:
                     PendingWealth = 10; PendingFood = 3; PendingMaterials = 2;
                     GenerateCardOptions(region, rareCount: 1, totalCount: 3);
+                    GenerateRelicOptions(2, boss: false); // 配置表 §5.1：精英展示 2 件遗物
                     break;
 
                 case EncounterConfig.EncounterType.Boss:
@@ -47,6 +49,7 @@ namespace OneJourney.Core
                     PendingFood = 5;
                     PendingMaterials = region == "草原" ? 3 : 4;
                     GenerateCardOptions(region, rareCount: 1, totalCount: 3);
+                    GenerateRelicOptions(3, boss: true); // 配置表 §5.1：首领展示 3 件遗物
                     break;
             }
         }
@@ -65,6 +68,17 @@ namespace OneJourney.Core
         public static void SkipReward()
         {
             _pending.Clear();
+        }
+
+        /// <summary>领取指定索引的遗物奖励（A2-22）。加入 RunSession.Relics；成功返回遗物 ID，失败返回 null。</summary>
+        public static string ClaimRelic(int optionIndex)
+        {
+            if (optionIndex < 0 || optionIndex >= _pending.Count) return null;
+            var opt = _pending[optionIndex];
+            if (string.IsNullOrEmpty(opt.RelicId)) return null;
+            _pending.Clear(); // 一个奖励只能选一次
+            RunSession.AddRelic(opt.RelicId);
+            return opt.RelicId;
         }
 
         public static void Clear()
@@ -127,6 +141,37 @@ namespace OneJourney.Core
             }
 
             return false;
+        }
+
+        /// <summary>生成遗物奖励选项（A2-22，配置表 §5.1）：从未持有遗物池随机抽 count 件；BossOnly 仅首领战可出。</summary>
+        private static void GenerateRelicOptions(int count, bool boss)
+        {
+            var pool = new List<RelicDef>();
+            foreach (var r in RelicCatalog.All)
+            {
+                if (RunSession.Relics.Contains(r.Id)) continue; // 已持有不重复出现
+                if (r.BossOnly && !boss) continue;
+                pool.Add(r);
+            }
+
+            var rng = RunSession.Random;
+            var selected = new List<RelicDef>();
+            while (selected.Count < count && pool.Count > 0)
+            {
+                int idx = rng.Next(pool.Count);
+                selected.Add(pool[idx]);
+                pool.RemoveAt(idx);
+            }
+
+            foreach (var r in selected)
+            {
+                _pending.Add(new RewardOption
+                {
+                    Label = r.DisplayName + "（遗物）",
+                    Detail = r.EffectText,
+                    RelicId = r.Id
+                });
+            }
         }
 
         private static void GenerateCardOptions(string region, int rareCount, int totalCount)

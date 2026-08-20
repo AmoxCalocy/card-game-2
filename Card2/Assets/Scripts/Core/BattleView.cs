@@ -19,6 +19,7 @@ namespace OneJourney.Core
         [SerializeField] private GameObject _enemyCardPrefab;  // 敌人用
         [SerializeField] private GameObject _skipRewardButtonPrefab; // 跳过奖励按钮（旧结算区用）
         [SerializeField] private GameObject _rewardPagePrefab;       // 独立奖励页（胜利后弹出）
+        [SerializeField] private GameObject _relicRewardPrefab;      // 遗物奖励条目（A2-22）
 
         // 从 Prefab 实例中解析的引用（非序列化）
         private GameObject _rootPanel;
@@ -227,48 +228,91 @@ namespace OneJourney.Core
                 _rewardDetailText.text = detail;
             }
 
-            // 清空旧选项（清理 RewardPage 根下本页生成的卡片）
+            // 清空旧选项（清理 RewardPage 根下本页生成的卡片/遗物条目）
             for (int i = _rewardPanel.transform.childCount - 1; i >= 0; i--)
             {
                 var old = _rewardPanel.transform.GetChild(i);
-                if (old.name.StartsWith("Reward_")) Destroy(old.gameObject);
+                if (old.name.StartsWith("Reward")) Destroy(old.gameObject);
             }
             _rewardCardGos.Clear();
 
             if (RewardResolver.HasPendingRewards)
             {
                 int total = RewardResolver.PendingOptions.Count;
+                int cardCount = 0, relicCount = 0;
+                foreach (var o in RewardResolver.PendingOptions)
+                {
+                    if (!string.IsNullOrEmpty(o.CardId)) cardCount++;
+                    else if (!string.IsNullOrEmpty(o.RelicId)) relicCount++;
+                }
+
+                int cardIdx = 0, relicIdx = 0;
                 for (int i = 0; i < total; i++)
                 {
                     int idx = i;
                     var opt = RewardResolver.PendingOptions[i];
+
+                    if (!string.IsNullOrEmpty(opt.RelicId))
+                    {
+                        // 遗物奖励：金色条目（prefab），排在卡牌右侧
+                        var relic = RelicCatalog.Find(opt.RelicId);
+                        if (relic == null || _relicRewardPrefab == null) continue;
+                        float x = (cardCount + relicIdx - (total - 1) * 0.5f) * 224f;
+                        var go = Instantiate(_relicRewardPrefab, _rewardPanel.transform);
+                        go.name = "RewardRelic_" + relic.Id;
+                        var rrt = go.GetComponent<RectTransform>();
+                        rrt.anchorMin = new Vector2(0.5f, 0.5f);
+                        rrt.anchorMax = new Vector2(0.5f, 0.5f);
+                        rrt.pivot = new Vector2(0.5f, 0.5f);
+                        rrt.sizeDelta = new Vector2(200, 300);
+                        rrt.anchoredPosition = new Vector2(x, 0);
+                        SetTmp(go, "Name", relic.DisplayName);
+                        SetTmp(go, "Effect", relic.EffectText);
+                        go.GetComponent<Button>().onClick.RemoveAllListeners();
+                        go.GetComponent<Button>().onClick.AddListener(() =>
+                        {
+                            string claimed = RewardResolver.ClaimRelic(idx);
+                            if (claimed != null)
+                            {
+                                RunSession.RecordResolution("战斗奖励", "选择遗物 " + claimed,
+                                    "已获得：" + RelicCatalog.Find(claimed)?.DisplayName);
+                                _rewardStatusText = "已领取遗物：" + relic.DisplayName;
+                            }
+                            _postCombatBuilt = false;
+                            StartCoroutine(RebuildPostCombatNextFrame());
+                        });
+                        _rewardCardGos.Add(go);
+                        relicIdx++;
+                        continue;
+                    }
+
                     var cardDef = CardCatalog.Find(opt.CardId);
                     if (cardDef == null) continue;
 
                     // 卡片直接挂到奖励页根并手动布局：CardOptions 容器下渲染异常（已实测），
                     // 挂到有 Image 的 RewardPage 根可正常渲染
-                    var go = Instantiate(_handCardPrefab, _rewardPanel.transform);
-                    go.name = "Reward_" + cardDef.Id;
-                    var cardRt = go.GetComponent<RectTransform>();
+                    var go2 = Instantiate(_handCardPrefab, _rewardPanel.transform);
+                    go2.name = "Reward_" + cardDef.Id;
+                    var cardRt = go2.GetComponent<RectTransform>();
                     cardRt.anchorMin = new Vector2(0.5f, 0.5f);
                     cardRt.anchorMax = new Vector2(0.5f, 0.5f);
                     cardRt.pivot = new Vector2(0.5f, 0.5f);
                     cardRt.sizeDelta = new Vector2(200, 300);
-                    cardRt.anchoredPosition = new Vector2((i - (total - 1) * 0.5f) * 224f, 0);
+                    cardRt.anchoredPosition = new Vector2((cardIdx - (total - 1) * 0.5f) * 224f, 0);
                     Color baseColor = CardColor(cardDef);
-                    var img = go.GetComponent<Image>();
+                    var img = go2.GetComponent<Image>();
                     if (img != null) img.color = new Color(baseColor.r * 0.85f, baseColor.g * 0.85f, baseColor.b * 0.85f);
-                    var bar = go.transform.Find("TopBar");
+                    var bar = go2.transform.Find("TopBar");
                     if (bar != null)
                     {
                         var barImg = bar.GetComponent<Image>();
                         if (barImg != null) barImg.color = baseColor;
                     }
-                    SetTmp(go, "Word/CostRow/Cost", cardDef.Cost.ToString());
-                    SetTmp(go, "Word/CostRow/Name", cardDef.DisplayName);
-                    SetTmp(go, "Word/Effect", cardDef.EffectText);
+                    SetTmp(go2, "Word/CostRow/Cost", cardDef.Cost.ToString());
+                    SetTmp(go2, "Word/CostRow/Name", cardDef.DisplayName);
+                    SetTmp(go2, "Word/Effect", cardDef.EffectText);
 
-                    var btn = go.GetComponent<Button>();
+                    var btn = go2.GetComponent<Button>();
                     if (btn != null)
                     {
                         btn.onClick.RemoveAllListeners();
@@ -285,7 +329,8 @@ namespace OneJourney.Core
                             StartCoroutine(RebuildPostCombatNextFrame());
                         });
                     }
-                    _rewardCardGos.Add(go);
+                    _rewardCardGos.Add(go2);
+                    cardIdx++;
                 }
                 if (_rewardSkipBtn != null) _rewardSkipBtn.gameObject.SetActive(true);
                 if (_rewardContinueBtn != null) _rewardContinueBtn.gameObject.SetActive(false);

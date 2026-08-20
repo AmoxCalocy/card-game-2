@@ -1,7 +1,7 @@
 ---
 id: kd_97c777f7-a9cc-42e0-b361-a45e568afc0d
 injectMode: inherit
-aiMaintained: inherit
+aiEditMode: inherit
 ---
 
 # 实施进度
@@ -248,5 +248,25 @@ aiMaintained: inherit
 - 说明：城镇建筑前置「草原首领已击败」由首领遭遇胜利置位；城镇独立页面入口留待 A2-23 区域过渡；存档持久化留待 A2-25；S01 生命恢复与 B02 受伤移除留待战役生命系统。
 - 验证：Test Runner 全绿（296 用例，含新增 20）；Play 链路：战斗测试 → 首领胜利 → 营地页城镇建筑解锁可建造 ✓。
 
+## 2026-08-20 · A2-22 制作 8 件 MVP 遗物（用户已验证）
+- 完成：
+  - `RelicCatalog.cs`（工作区已有，补全）— 8 件遗物静态目录（配置表 §7）：R01 旅人罗盘（地图显示全部节点，MVP 天然生效）/ R02 铁锅（每区域首次进营地粮 +4）/ R03 琥珀护符（每场战斗开始全队 +3 护甲）/ R04 医师药箱（每区域首次进营地移除疾病或疲劳）/ R05 商队印记（每区域首次事件财富 +5）/ R06 狼牙坠饰（每场首次普通伤害 +3）/ R07 指挥旗（每场首张战术卡 -1 费）/ R08 不熄灯（BossOnly，首领战开始 +2 士气）。
+  - `RunSession.cs` — `AddRelic`/`HasRelic`/`AddRelicForTest`；R02 接入 `EnterCampNode`（与 B01 叠加 +8）；R04 `RelicClinicAvailable`/`RelicClinic`（区域级一次）；R05 接入 `ApplyEventOptionEffects`（与 B05 市集叠加，事件财富首次 +10）。
+  - `CombatManager.cs` — `ApplyCombatStartRelics`（战斗开始：R03 全队 +3 护甲、R08 首领战 +2 士气）；战斗级标记 `RelicWolfUsedThisCombat`/`RelicFlagUsedThisCombat`（End 重置）；`Init` 内 `CurrentEncounterType` 先于战斗开始应用（R08 判断首领战）；RunSession 两处战斗初始化改为先设遭遇类型再 Init。
+  - `CombatResolver.cs` — R06（首次玩家伤害 +3，需持有遗物 + 战斗级标记）+ `RelicWolfBonus` 常量；R07（首张战术卡 C25-C32 减 1 费，最低 0）+ `IsTacticalCard`。
+  - `RewardResolver.cs` — **遗物奖励接入**（配置表 §5.1 此前未实现）：精英 +2 件、首领 +3 件（`GenerateRelicOptions`，未持有池、已持有不重复、BossOnly 仅首领出）；`RewardOption.RelicId` + `ClaimRelic`。
+  - `BattleView.cs`/`RelicReward.prefab`（新）— 奖励页金色遗物条目（prefab：名称 + 效果文字，TMP 字体内置，替代动态创建修复 NRE）；点击领取加入 `RunSession.Relics`。
+  - `GameUi.cs` — 营地页 R04 医师药箱服务入口（`ClinicRelic` 子模式）。
+  - `RelicTests.cs`（新）— 26 个 EditMode 用例（目录 8 件唯一/R08 仅首领、每件触发时点与一次性、R02+B01 与 R05+B05 叠加、遗物奖励生成/领取/不重复、战斗级标记重置、Reset 保留 + 新局清零）。
+- 修复：
+  - R06 缺 `HasRelic` 检查 → 污染全部玩家伤害测试（+3 无条件触发）；`_testEncounterIndex` 未随 Reset 归零 → 翻页索引跨测试泄漏。
+  - R08 测试 while 死循环（`NextEncounter` 不更新 `CurrentEncounterType`）→ 固定翻页；曾卡死 Unity 主线程，用户重启后恢复。
+  - 奖励页清理条件 `StartsWith("Reward_")` 匹配不到遗物名 `RewardRelic_*` → 改 `StartsWith("Reward")`（点击遗物后残留两个条目的 bug）。
+  - 遗物跨测试入口保留策略：`Reset`/`InitCampaignResources` 不再清空 `Relics`（与首领标记一致，测试入口共享战役进度），仅 `StartNewGame` 清零；四个测试类 SetUp 补显式隔离；`Reset_ClearsRelics` → `Reset_KeepsRelics_NewGameClears`。
+  - 事件页出现「剑击+费用」手牌按钮：`ShowPage` 非营地页强制显示 `HandCards` 容器覆盖了 `RefreshHandCards` 的「仅战斗显示」→ 改为仅营地页强制隐藏。
+  - 遗物条目动态创建 NRE（`_rewardTitleText.font` 为 null）→ 改 prefab 方案。
+- 说明：多遗物叠加测试已覆盖 R02+B01、R05+B05；R06+士气、R07+C19 叠加未补测（用户确认不需要）；「重新读档不重复触发」留待 A2-25 存档；Play 无遗物调试入口（用户确认不需要，仅靠精英/首领随机奖励获得）。
+- 验证：Test Runner 全绿（318 用例，含新增 26）；Play：精英/首领胜利奖励页金色遗物条目（prefab 名称+效果）、点击领取无报错、卡牌与遗物同时清理、持有遗物后首领战士气 2 / 营地页医师药箱入口 / R05 事件财富 +5 均生效 ✓。
+
 ## 进行中
-- 下一步：A2-22 制作 8 件 MVP 遗物（等待用户指示开始）。
+- 下一步：A2-23 构建密林区域与区域切换（等待用户指示开始）。

@@ -10,6 +10,7 @@ namespace OneJourney.Tests.EditMode
         public void SetUp()
         {
             RunSession.Reset();
+            RunSession.Relics.Clear(); // 遗物跨测试入口保留，战斗奖励测试间需隔离
             RunSession.EnterTestPage(GameState.Combat); // 起始：粮 14 / 财 30 / 建材 0（测试入口初始化资源）
             ContentRegistry.Clear();
         }
