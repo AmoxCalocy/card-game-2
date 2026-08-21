@@ -356,7 +356,14 @@ namespace OneJourney.Core
         {
             Hide();
             var ui = FindObjectOfType<GameUi>();
-            if (ui != null) ui.ReturnToMenu();
+            if (ui != null)
+            {
+                // A2-23：地图战斗（含区域首领胜利后切密林）→ 返回地图继续；测试入口无地图 → 回主菜单
+                if (RegionMap.IsGenerated && RunSession.CurrentState != GameState.MainMenu)
+                    ui.ReturnToMap();
+                else
+                    ui.ReturnToMenu();
+            }
         }
 
         private void RefreshTurnInfo()

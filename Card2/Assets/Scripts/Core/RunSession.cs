@@ -1110,6 +1110,105 @@ namespace OneJourney.Core
             GameFlow.TryTransition(GameState.Combat, "事件触发战斗：" + opt.CombatLabel);
         }
 
+        // ---- 地图节点战斗（A2-23，配置表 §9）----
+
+        /// <summary>当前区域名称（奖励池等按区域区分）。</summary>
+        public static string RegionDisplayName()
+        {
+            return RegionMap.Region == ContentRegion.Jungle ? "密林" : "草原";
+        }
+
+        /// <summary>从地图战斗/精英/首领节点进入战斗：按种子从节点敌人池抽取敌人并初始化。</summary>
+        public static bool StartNodeCombat(RegionMapNode node)
+        {
+            if (node == null || node.EnemyPoolIds == null || node.EnemyPoolIds.Length == 0) return false;
+            if (node.Type != NodeType.Combat && node.Type != NodeType.Elite && node.Type != NodeType.Boss) return false;
+            if (CombatManager.IsActive) return false;
+
+            // 危机伏击优先：移动到普通/精英/事件节点时若标记置位则触发强制伏击（§9.1）
+            if (AmbushPending && node.Type != NodeType.Boss)
+            {
+                return StartAmbushCombat();
+            }
+
+            if (PartnerRoster.ActiveCount == 0) PartnerRoster.InitTestRoster();
+            var player = CombatUnit.CreatePlayer(45, 6);
+            var team = PartnerRoster.BuildCombatTeam(player);
+
+            var enemies = new System.Collections.Generic.List<CombatUnit>();
+            string enemyId = node.EnemyPoolIds[Random.Next(node.EnemyPoolIds.Length)];
+            var e = EnemyUnit.CreateById(enemyId);
+            if (e != null) enemies.Add(e);
+
+            if (CampaignDeck == null)
+                CampaignDeck = new CampaignDeck(GameStartParameters.StartingDeck);
+            var deck = CampaignDeck.CloneCardList();
+
+            CombatManager.CurrentEncounterType = node.Type == NodeType.Boss
+                ? EncounterConfig.EncounterType.Boss
+                : (node.Type == NodeType.Elite ? EncounterConfig.EncounterType.Elite : EncounterConfig.EncounterType.Normal);
+            CombatManager.Init(team, enemies, deck);
+            GameFlow.TryTransition(GameState.Combat, "进入" + RegionMapNode.NodeTypeName(node.Type) + "节点");
+            RecordResolution("战斗", "进入节点战斗",
+                CombatManager.IsActive
+                    ? CombatManager.EnemyTeam[0].DisplayName + "（" + RegionMapNode.NodeTypeName(node.Type) + "）"
+                    : "初始化失败（检查日志）");
+            return true;
+        }
+
+        /// <summary>危机伏击战斗（§9.1）：草原 EN01+EN02 / 密林 EN06+EN08，按精英奖励结算；触发后风险已重置 5。</summary>
+        public static bool StartAmbushCombat()
+        {
+            if (CombatManager.IsActive) return false;
+            string[] ids = RegionMap.Region == ContentRegion.Jungle
+                ? new[] { "EN06", "EN08" }
+                : new[] { "EN01", "EN02" };
+
+            if (PartnerRoster.ActiveCount == 0) PartnerRoster.InitTestRoster();
+            var player = CombatUnit.CreatePlayer(45, 6);
+            var team = PartnerRoster.BuildCombatTeam(player);
+
+            var enemies = new System.Collections.Generic.List<CombatUnit>();
+            foreach (var id in ids)
+            {
+                var e = EnemyUnit.CreateById(id);
+                if (e != null) enemies.Add(e);
+            }
+
+            if (CampaignDeck == null)
+                CampaignDeck = new CampaignDeck(GameStartParameters.StartingDeck);
+            var deck = CampaignDeck.CloneCardList();
+
+            AmbushPending = false; // 伏击已触发
+            CombatManager.CurrentEncounterType = EncounterConfig.EncounterType.Elite; // 按精英奖励结算
+            CombatManager.Init(team, enemies, deck);
+            GameFlow.TryTransition(GameState.Combat, "危机伏击：" + ids.Length + " 名敌人");
+            RecordResolution("战斗", "危机伏击",
+                CombatManager.IsActive ? "触发伏击战斗（按精英奖励结算）" : "初始化失败（检查日志）");
+            return true;
+        }
+
+        /// <summary>区域切换（A2-23）：草原首领胜利后进入密林。保留牌组/伙伴/资源/遗物/建筑，
+        /// 重置区域风险与区域级一次性标记（配置表 §9 区域初始风险 0）。由胜利分支调用（Combat→Reward）。</summary>
+        public static void AdvanceToNextRegion()
+        {
+            if (RegionMap.Region != ContentRegion.Plains) return; // 仅草原 → 密林；密林首领结局 A2-24
+            if (GameFlow.CurrentState != GameState.Combat && GameFlow.CurrentState != GameState.Reward) return;
+
+            GameFlow.TryTransition(GameState.Reward, "区域切换：进入密林");
+            RegionMap.Generate(ContentRegion.Jungle, Random);
+            Risk = 0;
+            AmbushPending = false;
+            _campBonusUsedThisRegion = false;
+            _eventWealthBonusUsedThisRegion = false;
+            _relicCampFoodUsedThisRegion = false;
+            _relicClinicUsedThisRegion = false;
+            _relicEventWealthUsedThisRegion = false;
+            RecordResolution("区域切换", "进入密林",
+                "保留牌组 " + (CampaignDeck != null ? CampaignDeck.Count : 0) + " 张 / 资源：粮食" + Food
+                + " 财富" + Wealth + " 建材" + Materials + "；风险重置为 0；密林地图已生成");
+        }
+
         private static int Clamp(int v, int min, int max)
         {
             return v < min ? min : (v > max ? max : v);
@@ -1131,6 +1230,13 @@ namespace OneJourney.Core
             if (!RegionMap.TryMoveTo(nodeIndex, out string reason))
             {
                 return "移动被拒绝：" + reason;
+            }
+
+            // 移动成功：进入移动状态（Map→Move；已处于 Move 时幂等，支持连续移动/测试）
+            if (CurrentState == GameState.Map
+                && !GameFlow.TryTransition(GameState.Move, "移动结算：" + RegionMap.Nodes[nodeIndex].DisplayName))
+            {
+                return "状态机拒绝移动结算";
             }
 
             var node = RegionMap.Nodes[nodeIndex];

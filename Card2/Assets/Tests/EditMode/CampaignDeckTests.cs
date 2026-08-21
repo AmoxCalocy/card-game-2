@@ -102,7 +102,22 @@ namespace OneJourney.Tests.EditMode
             string claimed = RewardResolver.ClaimCard(0);
             Assert.IsNotNull(claimed);
             Assert.IsTrue(CardCatalog.Exists(claimed));
-            Assert.IsFalse(RewardResolver.HasPendingRewards);
+            Assert.IsFalse(RewardResolver.HasPendingRewards, "普通奖励只有卡牌，领完即清空");
+        }
+
+        [Test]
+        public void ClaimCard_Elite_KeepsRelicOptions()
+        {
+            // 精英奖励 3 卡 + 2 遗物：领取卡牌后遗物选项保留（可再选 1 件遗物）
+            RewardResolver.GenerateRewards(EncounterConfig.EncounterType.Elite, "草原");
+            string claimed = RewardResolver.ClaimCard(0);
+
+            Assert.IsNotNull(claimed);
+            Assert.IsTrue(RewardResolver.HasPendingRewards, "遗物选项仍在");
+            int relicCount = 0;
+            foreach (var opt in RewardResolver.PendingOptions)
+                if (!string.IsNullOrEmpty(opt.RelicId)) relicCount++;
+            Assert.AreEqual(2, relicCount, "2 件遗物保留");
         }
 
         [Test]

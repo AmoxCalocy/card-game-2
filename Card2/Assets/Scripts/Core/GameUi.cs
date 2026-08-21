@@ -560,6 +560,13 @@ namespace OneJourney.Core
             ShowMenu();
         }
 
+        /// <summary>返回地图页（A2-23：奖励结算/区域切换后继续地图）。</summary>
+        public void ReturnToMap()
+        {
+            GameFlow.TryTransition(GameState.Map, "返回地图");
+            ShowPage("地图", BuildMapDescription());
+        }
+
         private void OnQuit()
         {
 #if UNITY_EDITOR
@@ -811,6 +818,13 @@ namespace OneJourney.Core
             var node = RegionMap.Nodes[nodeIndex];
             if (node.Type == NodeType.Event)
             {
+                // 事件节点：伏击优先（§9.1）
+                if (RunSession.AmbushPending && RunSession.StartAmbushCombat())
+                {
+                    ShowPage("地图", BuildMapDescription() + "\n触发危机伏击！");
+                    return;
+                }
+
                 RunSession.StartEventFromNode(node);
                 ShowEventPage();
                 return;
@@ -825,7 +839,14 @@ namespace OneJourney.Core
                 return;
             }
 
-            // 战斗/精英/首领节点内容后续步骤接入；当前停留在地图展示结算
+            // 战斗/精英/首领节点：进入节点战斗（A2-23）
+            if (RunSession.StartNodeCombat(node))
+            {
+                ShowPage("地图", BuildMapDescription() + "\n" + result);
+                return;
+            }
+
+            // 初始化失败：停留在地图展示结算
             ShowPage("地图", BuildMapDescription() + "\n" + result);
         }
 
@@ -1363,7 +1384,9 @@ namespace OneJourney.Core
         {
             if (!RegionMap.IsGenerated) return "地图尚未生成。";
 
-            string desc = "草原地图（共 " + RegionMap.LayerCount + " 层）\n";
+            bool jungle = RegionMap.Region == ContentRegion.Jungle;
+            string regionName = jungle ? "密林" : "草原";
+            string desc = regionName + "地图（共 " + RegionMap.LayerCount + " 层）\n";
             desc += "当前位置：" + (RegionMap.CurrentNodeIndex < 0 ? "起点" : RegionMap.Nodes[RegionMap.CurrentNodeIndex].DisplayName)
                 + "（第 " + RegionMap.CurrentLayer + " 层）";
             desc += " | 剩余层数：" + RegionMap.RemainingLayers + "\n";
@@ -1381,8 +1404,10 @@ namespace OneJourney.Core
             desc += BuildResourceLine();
             if (RunSession.Risk > 0) desc += " | 风险 " + RunSession.Risk;
             desc += "\n";
-            desc += "风险提示：草原每次移动风险 +1，精英节点额外 +1；达到 " + GameStartParameters.RiskThreshold
-                + " 触发危机伏击（移动消耗与风险结算在后续步骤接入）。\n";
+            desc += "风险提示：" + (jungle ? "密林每次移动风险 +2" : "草原每次移动风险 +1")
+                + "，精英节点额外 +1；达到 " + GameStartParameters.RiskThreshold
+                + " 触发危机伏击（" + (jungle ? "伏匪+毒丝蛛" : "路匪+野犬") + "，按精英奖励结算）。\n";
+            if (RunSession.AmbushPending) desc += "⚠ 危机伏击将触发！\n";
 
             desc += "可移动节点：";
             var reachable = RegionMap.ReachableNext();

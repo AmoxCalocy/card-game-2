@@ -62,48 +62,55 @@ namespace OneJourney.Core
         private static readonly List<int> _visited = new List<int>();
         private static readonly List<int> _path = new List<int>();
 
-        /// <summary>生成指定区域的地图（当前实现草原）。失败时返回 false 并记录原因。</summary>
+        /// <summary>生成指定区域的地图（��原/密林，配置表 §9）。失败时返回 false 并记录原因。</summary>
         public static bool Generate(ContentRegion region, GameRandom rng)
         {
             Clear();
 
-            if (region != ContentRegion.Plains)
+            if (region != ContentRegion.Plains && region != ContentRegion.Jungle)
             {
-                RunRecord.Log(RecordCategory.General, "地图生成失败：暂仅支持草原区域（" + region + "）");
+                RunRecord.Log(RecordCategory.General, "地图生成失败：未知区域（" + region + "）");
                 return false;
             }
 
             Region = region;
             var r = rng;
+            bool jungle = region == ContentRegion.Jungle;
+
+            // 区域池（配置表 §9）：草原 EN01/02/04 与 E01-E10；密林 EN06/07/09 与 E11-E20
+            string[] combatPool = jungle ? new[] { "EN06", "EN07", "EN09" } : new[] { "EN01", "EN02", "EN04" };
+            string[] elitePool = jungle ? new[] { "EN08" } : new[] { "EN03" };
+            string[] bossPool = jungle ? new[] { "EN10" } : new[] { "EN05" };
+            string[] eventPool = jungle ? JungleEventPool() : PlainsEventPool();
 
             // 第 1 层：普通战斗、事件、营地各 1
             var layer1 = new List<RegionMapNode>
             {
-                MakeCombatNode(1, new[] { "EN01", "EN02", "EN04" }),
-                MakeEventNode(1, PlainsEventPool()),
+                MakeCombatNode(1, combatPool),
+                MakeEventNode(1, eventPool),
                 MakeCampNode(1)
             };
 
             // 第 2 层：普通战斗、事件、精英各 1
             var layer2 = new List<RegionMapNode>
             {
-                MakeCombatNode(2, new[] { "EN01", "EN02", "EN04" }),
-                MakeEventNode(2, PlainsEventPool()),
-                MakeEliteNode(2, new[] { "EN03" })
+                MakeCombatNode(2, combatPool),
+                MakeEventNode(2, eventPool),
+                MakeEliteNode(2, elitePool)
             };
 
             // 第 3 层：普通战斗、事件、营地各 1
             var layer3 = new List<RegionMapNode>
             {
-                MakeCombatNode(3, new[] { "EN01", "EN02", "EN04" }),
-                MakeEventNode(3, PlainsEventPool()),
+                MakeCombatNode(3, combatPool),
+                MakeEventNode(3, eventPool),
                 MakeCampNode(3)
             };
 
-            // 第 4 层：草原首领
+            // 第 4 层：区域首领
             var layer4 = new List<RegionMapNode>
             {
-                MakeBossNode(4, new[] { "EN05" })
+                MakeBossNode(4, bossPool)
             };
 
             // 层内顺序由种子决定
@@ -218,6 +225,11 @@ namespace OneJourney.Core
         private static string[] PlainsEventPool()
         {
             return new[] { "E01", "E02", "E03", "E04", "E05", "E06", "E07", "E08", "E09", "E10" };
+        }
+
+        private static string[] JungleEventPool()
+        {
+            return new[] { "E11", "E12", "E13", "E14", "E15", "E16", "E17", "E18", "E19", "E20" };
         }
 
         private static RegionMapNode MakeCombatNode(int layer, string[] enemies)

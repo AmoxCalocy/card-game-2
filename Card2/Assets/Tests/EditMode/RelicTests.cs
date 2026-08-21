@@ -342,7 +342,43 @@ namespace OneJourney.Tests.EditMode
 
             Assert.IsNotNull(claimed);
             Assert.IsTrue(RunSession.HasRelic(claimed), "领取后持有遗物");
-            Assert.IsFalse(RewardResolver.HasPendingRewards, "领取后清空选项");
+            Assert.IsTrue(RewardResolver.HasPendingRewards, "卡牌选项保留（可再选 1 张卡）");
+            int cardCount = 0;
+            foreach (var opt in RewardResolver.PendingOptions)
+                if (!string.IsNullOrEmpty(opt.CardId)) cardCount++;
+            Assert.AreEqual(3, cardCount, "首领 3 张卡牌保留");
+        }
+
+        [Test]
+        public void Reward_ClaimCardThenRelic_BothGranted()
+        {
+            // 卡牌 + 遗物各选一个：先领卡再领遗物
+            RewardResolver.GenerateRewards(EncounterConfig.EncounterType.Elite, "草原");
+            int cardIdx = -1, relicIdx = -1;
+            for (int i = 0; i < RewardResolver.PendingOptions.Count; i++)
+            {
+                var opt = RewardResolver.PendingOptions[i];
+                if (cardIdx < 0 && !string.IsNullOrEmpty(opt.CardId)) cardIdx = i;
+                if (relicIdx < 0 && !string.IsNullOrEmpty(opt.RelicId)) relicIdx = i;
+            }
+
+            string card = RewardResolver.ClaimCard(cardIdx);
+            Assert.IsNotNull(card);
+            // 与 BattleView 回调一致：领取后由 UI 层加入牌组
+            Assert.IsTrue(RunSession.CampaignDeck.AddCard(card), "卡牌加入牌组");
+
+            // 卡牌选项已移除，遗物索引可能移位：重新定位
+            int relicNow = -1;
+            for (int i = 0; i < RewardResolver.PendingOptions.Count; i++)
+            {
+                if (!string.IsNullOrEmpty(RewardResolver.PendingOptions[i].RelicId)) { relicNow = i; break; }
+            }
+
+            string relic = RewardResolver.ClaimRelic(relicNow);
+            Assert.IsNotNull(relic);
+            Assert.IsTrue(RunSession.HasRelic(relic), "遗物已持有");
+
+            Assert.IsFalse(RewardResolver.HasPendingRewards, "卡与遗物都选完即清空");
         }
 
         [Test]

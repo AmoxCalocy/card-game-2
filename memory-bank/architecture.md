@@ -22,8 +22,9 @@ aiEditMode: inherit
 
 ## 会话与流程
 - `GameFlow.cs` — 流程状态机：`CurrentState`（唯一状态源）、11 状态转移表（`IsAllowed`）、`TryTransition(to, reason)`（非法转移拒绝且无副作用并打警告）、状态日志 `Log`（上限 100 条，`LastTransition` 取最新）、`Reset` 清空日志、`Changed` 事件。`GameState` 枚举值：None/MainMenu/Combat/Map/Event/Camp/NewGame/Move/Reward/Victory/Defeat/Settlement（新状态为追加，旧值不变）。
-- `RunSession.cs` — 静态会话数据：随机种子（支持 `-seed <n>` 与 UI 种子输入）、`CurrentState` 委托 `GameFlow`、结算记录列表（上限 20 条）；`StartNewGame`（含阻塞检查 + `GameRandom` 初始化 + `RunRecord.Clear()` + `InitCampaignResources()` + `RegionMap.Generate(Plains)`）、`EnterTestPage`（Combat 时调用 `InitTestCombat` 创建测试战斗；Map 时生成草原地图）、`RecordResolution`、`Reset`（清理 `Random`/`RunRecord`/`Records`/`GameFlow`/`PartnerRoster`/`RewardResolver`/`RegionMap`/资源/风险/疲劳）；`Random` 静态属性；`Changed` 事件驱动 UI 刷新。
-- 战役状态（A2-18）：`Food`/`Wealth`/`Reputation`/`Materials`（起始资源）、`Risk`（0-10 区域风险）、`PlayerFatigue`（主角战役疲劳）、`AmbushPending`（危机伏击标记）；`TryMoveToNode(nodeIndex)`（移动结算：地图校验→粮食消耗→不足惩罚（粮归 0/主角疲劳 +1/风险 +2）→风险增长（基础 +1、精英额外 +1）→阈值 10 重置 5 并标记伏击，返回可读文本，拒绝时资源不变）；`SyncPlayerFromCombat`（胜利回写主角疲劳）；测试辅助 `SetFoodForTest`/`SetRiskForTest`。
+- `RunSession.cs` — 静态会话数据：随机种子（支持 `-seed <n>` 与 UI 种子输入）、`CurrentState` 委托 `GameFlow`、结算记录列表（上限 20 条）；`StartNewGame`（含阻塞检查 + `GameRandom` 初始化 + `RunRecord.Clear()` + `InitCampaignResources()` + `RegionMap.Generate(Plains)`）、`EnterTestPage`（Combat 时调用 `InitTestCombat` 创建测试战斗；Map 时生成地图；Camp 时补建造调试资源）、`RecordResolution`、`Reset`（清理 `Random`/`RunRecord`/`Records`/`GameFlow`/`PartnerRoster`/`RewardResolver`/`RegionMap`/资源/风险/疲劳；**遗物与首领击败标记跨测试入口保留**，仅新游戏 `StartNewGame` 清零）；`Random` 静态属性；`Changed` 事件驱动 UI 刷新。
+- 战役状态（A2-18）：`Food`/`Wealth`/`Reputation`/`Materials`（起始资源）、`Risk`（0-10 区域风险）、`PlayerFatigue`（主角战役疲劳）、`AmbushPending`（危机伏击标记）；`TryMoveToNode(nodeIndex)`（移动结算：Map→Move 状态转移（幂等）→粮食消耗（草原 1/密林 2）→不足惩罚（粮归 0/主角疲劳 +1/风险 +2）→风险增长（基础 +1/+2、精英额外 +1）→阈值 10 重置 5 并标记伏击，返回可读文本，拒绝时资源不变）；`SyncPlayerFromCombat`（胜利回写主角疲劳+疾病）；测试辅助 `SetFoodForTest`/`SetRiskForTest`/`SetWealthForTest`/`SetReputationForTest`/`SetMaterialsForTest`/`SetPlayerFatigueForTest`/`SetPlayerDiseaseForTest`。
+- 节点战斗与区域切换（A2-23）：`StartNodeCombat(node)`（战斗/精英/首领节点按种子抽敌人→进入战斗，遭遇类型 Normal/Elite/Boss，伏击优先）、`StartAmbushCombat`（§9.1：草原 EN01+EN02 / 密林 EN06+EN08，按精英奖励结算）、`AdvanceToNextRegion`（草原首领胜利→密林：保留牌组/伙伴/资源/遗物/建筑，重置风险与区域级一次性标记，Combat→Reward）、`RegionDisplayName()`（奖励区域池）。
 - `GameStartParameters.cs` — 第一版起始参数与全局规则常量（唯一代码来源，对应《MVP 配置表》）：主角 45 血/6 指令伤害、上阵 4 人、牌组 10–30、手牌 3/1/5、能量 3、起始资源（粮 14 财 30 声望 0 建材 0）、粮食不足惩罚（+1 疲劳、风险 +2）、风险常量（阈值 10、危机后重置 5、草原/密林移动 +1/+2、精英额外 +1、营地结算 -2）、起始牌组 10 张（C01×4、C09×3、C17、C33、C36）、垂直切片目标 EN10。
 
 ## 内容系统
@@ -53,7 +54,7 @@ aiEditMode: inherit
 - `CombatStatus.cs` — 状态规则统一入口：上限常量（流血 5/士气 3/疾病 3/疲劳 3/护甲 30）、每层效果（疾病 -4 最大生命/疲劳 -5 护甲上限 -1 指令伤害/士气 +2 伤害）、施加叠加（钳上限、不作用于死亡单位、疾病钳当前生命、疲劳钳护甲）、移除、`TriggerTurnStartBleed`（真实伤害=层数，伤害后 -1，致死触发结束检查）、`TriggerTeamTurnStartBleed`。
 - `CombatStatusTests.cs` — 16 个 EditMode 用例：流血叠加/真实伤害/衰减/致死/死亡不施加/疾病上限钳制/疲劳上限钳制/士气加成重置/多状态共存顺序。
 - `CampaignDeck.cs` — 战役牌组（A2-16）：战斗外持久化卡牌集合；`AddCard`（≤30）/`RemoveCard`/`RemoveCardAt`（≥10）/`CloneCardList`；A2-19：`IsInitialLockedCard`（初始牌组锁定，不可被事件移除）/`HasRemoveableCard`/`RemoveableCards`（事件移除卡选项）/`UpgradedCards`+`UpgradeCard`（升级标记，同卡仅一次）。
-- `RewardResolver.cs` — 战斗奖励（A2-16）：按遭遇类型生成资源+卡牌选项；`PendingOptions`/`ClaimCard`（选一清空）/`SkipReward`/`Clear`；A2-20：资源奖励由 `RunSession.ApplyCombatRewards` 在胜利时钳制入账（跳过只放弃卡牌）；A2-21：池逻辑重构为 `BuildRegionPool(region, commonOnly)`（区域来源卡 + 建筑奖励卡 B03：C04/C11、B04：C34/C37/C40 跨区域进池），新增 `RewardPoolContains(region, cardId)` 池内容直查；A2-22：遗物奖励（配置表 §5.1）精英 +2 件、首领 +3 件（`GenerateRelicOptions`：未持有池、已持有不重复、BossOnly 仅首领出），`RewardOption.RelicId` + `ClaimRelic`。
+- `RewardResolver.cs` — 战斗奖励（A2-16）：按遭遇类型生成资源+卡牌选项；`PendingOptions`/`ClaimCard`（领取后只移除卡牌选项，遗物保留——A2-23 起卡牌与遗物各选一个）/`ClaimRelic`（领取后只移除遗物选项，卡牌保留）/`SkipReward`/`Clear`；A2-20：资源奖励由 `RunSession.ApplyCombatRewards` 在胜利时钳制入账（跳过只放弃卡牌）；A2-21：池逻辑重构为 `BuildRegionPool(region, commonOnly)`（区域来源卡 + 建筑奖励卡 B03：C04/C11、B04：C34/C37/C40 跨区域进池），新增 `RewardPoolContains(region, cardId)` 池内容直查；A2-22：遗物奖励（配置表 §5.1）精英 +2 件、首领 +3 件（`GenerateRelicOptions`：未持有池、已持有不重复、BossOnly 仅首领出），`RewardOption.RelicId`。
 - `PartnerDef.cs` / `PartnerRoster.cs` — 伙伴系统（A2-15）：8 名伙伴静态定义 + 运行时状态（招募/上阵/HP/疾病/疲劳/忠诚度）；`BuildCombatTeam`（伙伴在前旅人第二位）/`SyncFromCombat`/`InitTestRoster`。
 - `CardCatalogTests.cs` — 27 个 EditMode 用例（A1-13）：目录完整性（6）/ 出牌基础流程（5）/ 各类卡牌效果（14）/ 边界与特殊机制（2）。
 - `PartnerRosterTests.cs` — 15 个 EditMode 用例（A2-15）：数据完整性/招募/上阵上限/未招募拒绝/死亡拒绝/BuildCombatTeam/SyncFromCombat/Clear。
@@ -61,6 +62,9 @@ aiEditMode: inherit
 - `EnemyUnit.cs` — 敌人单位（继承 CombatUnit）：`EnemyIntentExec`（攻击/全体攻击/防御/掠夺 + 副作用 BleedStacks/DiseaseStacks + 诱饵标记 `TargetsPlayer`）+ `RollIntent`（种子驱动加权抽取）+ 10 种敌人工厂（EN01-EN10，按配置表 §5）；`Clone` 重写深拷贝意图。
 - `EnemyIntentTests.cs` — 12 个 EditMode 用例：同意图/零权重/首回合揭示/攻击/防御/掠夺/AOE/死敌跳过/无目标/默认目标选择/士气隔离。
 - `EncounterConfig.cs` — 9 组遭遇表（草原普通×2/精英/首领，密林普通×3/精英/首领，含标签/区域/类型）；`RunSession._testEncounterIndex` 翻页选择。
+
+## 区域地图（A2-17 / A2-23）
+- `RegionMap.cs` — 区域节点地图：`RegionMapNode`（Id/Layer/Type/EnemyPoolIds/EventPoolIds/NextIndexes）+ 静态管理器 `RegionMap`：`Generate(region, rng)` 支持草原与密林（配置表 §9：L1 战斗/事件/营地、L2 战斗/事件/精英、L3 战斗/事件/营地、L4 首领；草原敌人池 EN01/02/04+EN03+EN05 事件 E01-E10，密林 EN06/07/09+EN08+EN10 事件 E11-E20；层内随机、连通性保证：上下层出入度≥1、第三层全连首领、无回退）、`TryMoveTo`（下一层/相连/未访问三查）、`ReachableNext`（UI 高亮）、`Clear`、`Region`（当前区域）。
 
 ## 遗物系统（A2-22）
 - `RelicCatalog.cs` — 8 件遗物静态目录（配置表 §7）：`RelicDef`（Id/DisplayName/EffectText/BossOnly）；R01 旅人罗盘（地图显示全部节点，MVP 天然生效）/R02 铁锅（每区域首次进营地粮 +4）/R03 琥珀护符（每场战斗开始全队 +3 护甲）/R04 医师药箱（每区域首次进营地移除疾病或疲劳）/R05 商队印记（每区域首次事件财富 +5）/R06 狼牙坠饰（每场首次普通伤害 +3）/R07 指挥旗（每场首张战术卡 -1 费）/R08 不熄灯（BossOnly，首领战开始 +2 士气）。

@@ -268,5 +268,23 @@ aiEditMode: inherit
 - 说明：多遗物叠加测试已覆盖 R02+B01、R05+B05；R06+士气、R07+C19 叠加未补测（用户确认不需要）；「重新读档不重复触发」留待 A2-25 存档；Play 无遗物调试入口（用户确认不需要，仅靠精英/首领随机奖励获得）。
 - 验证：Test Runner 全绿（318 用例，含新增 26）；Play：精英/首领胜利奖励页金色遗物条目（prefab 名称+效果）、点击领取无报错、卡牌与遗物同时清理、持有遗物后首领战士气 2 / 营地页医师药箱入口 / R05 事件财富 +5 均生效 ✓。
 
+## 2026-08-20 · A2-23 构建密林区域与区域切换（用户已验证）
+- 完成：
+  - `RegionMap.cs` — `Generate` 支持密林（配置表 §9）：L1 战斗/事件/营地、L2 战斗/事件/精英、L3 战斗/事件/营地、L4 首领；敌人池草原 EN01/02/04 + EN03 + EN05 / 密林 EN06/07/09 + EN08 + EN10；事件池 E01-E10 / E11-E20；层内随机、连通性不变。
+  - `RunSession.cs` — `StartNodeCombat`（战斗/精英/首领节点按种子抽敌人→进入战斗，遭遇类型 Normal/Elite/Boss，伏击优先）；`StartAmbushCombat`（§9.1：草原 EN01+EN02 / 密林 EN06+EN08，按精英奖励结算，触发后清标记）；`AdvanceToNextRegion`（草原首领胜利→密林：保留牌组/伙伴/资源/遗物/建筑，重置风险与区域级一次性标记，Combat→Reward）；`RegionDisplayName`（奖励区域池）；`TryMoveToNode` 补 Map→Move 状态转移（幂等，支持连续移动）。
+  - `CombatManager.cs` — 胜利奖励区域化 `RewardResolver.GenerateRewards(type, RegionDisplayName())`；首领胜利调用 `AdvanceToNextRegion`。
+  - `GameUi.cs` — `OnMapNodeClicked` 战斗/精英/首领节点进入节点战斗、事件节点伏击优先；`BuildMapDescription` 区域化（区域名/风险提示/伏击警告 ⚠）；新增 `ReturnToMap()`（奖励结算/区域切换后继续地图，BattleView 继续按钮按是否有地图分流）。
+  - `RegionTransitionTests.cs`（新）— 8 个 EditMode 用例：密林结构/池引用/连通性（10 种子）、节点战斗、精英类型、危机伏击（含精英奖励建材 +2）、草原首领胜利→密林保留战役状态（牌组/遗物/建筑/首领标记/风险重置/粮食+首领奖励）、密林移动消耗（粮 -2 风险 +2）。
+- 修复：
+  - `TryMoveToNode` 缺状态转移 → 补 Map→Move 且 Move 态幂等（连续移动/测试链不中断；曾导致 MoveCostTests 4 例失败）。
+  - 测试断言：首领胜利保留粮食需含首领奖励 +5 粮；`CombatNode_Start` 断言状态 Combat（修复状态转移后恢复）。
+- 说明：危机伏击的密林版本（EN06+EN08）已实现但 Play 触发路径依赖风险累计；密林首领垂直切片结局留待 A2-24。
+- 验证：Test Runner 全绿（326 用例，含新增 8）；Play：新游戏逐层到首领→胜利→奖励页→继续→密林地图（保留战役状态）✓。
+
+## 2026-08-20 · A2-23 补充：奖励页卡牌与遗物各选一个（用户已验证）
+- `RewardResolver.ClaimCard` 领取后只移除卡牌选项（遗物保留）、`ClaimRelic` 只移除遗物选项（卡牌保留）；两者都选完（或跳过）→ 继续按钮。
+- 测试：`Reward_ClaimCardThenRelic_BothGranted`（先卡后遗物都入账）、`ClaimCard_Elite_KeepsRelicOptions`（领卡后遗物仍在）、`Reward_ClaimRelic_AddsToRunSession` 更新（领遗物后卡牌保留）。
+- 验证：328 用例全绿；Play 精英/首领胜利先领卡再领遗物、两者都消失后出现继续按钮 ✓。
+
 ## 进行中
-- 下一步：A2-23 构建密林区域与区域切换（等待用户指示开始）。
+- 下一步：A2-24 定义 MVP 单局结局与结算页（等待用户指示开始）。

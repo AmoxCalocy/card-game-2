@@ -54,13 +54,14 @@ namespace OneJourney.Core
             }
         }
 
-        /// <summary>领取指定索引的卡牌奖励（0-based）。返回被领取的卡 ID，失败返回 null。</summary>
+        /// <summary>领取指定索引的卡牌奖励（0-based）。返回被领取的卡 ID，失败返回 null。
+        /// 卡牌最多选 1 张：领取后移除全部卡牌选项，遗物选项保留（可再选 1 件遗物）。</summary>
         public static string ClaimCard(int optionIndex)
         {
             if (optionIndex < 0 || optionIndex >= _pending.Count) return null;
             var opt = _pending[optionIndex];
             if (string.IsNullOrEmpty(opt.CardId)) return null;
-            _pending.Clear(); // 领取后清空（一个奖励只能选一次）
+            _pending.RemoveAll(o => !string.IsNullOrEmpty(o.CardId)); // 只移除卡牌选项
             return opt.CardId;
         }
 
@@ -70,13 +71,14 @@ namespace OneJourney.Core
             _pending.Clear();
         }
 
-        /// <summary>领取指定索引的遗物奖励（A2-22）。加入 RunSession.Relics；成功返回遗物 ID，失败返回 null。</summary>
+        /// <summary>领取指定索引的遗物奖励（A2-22）。加入 RunSession.Relics；成功返回遗物 ID，失败返回 null。
+        /// 遗物最多选 1 件：领取后移除全部遗物选项，卡牌选项保留（可再选 1 张卡）。</summary>
         public static string ClaimRelic(int optionIndex)
         {
             if (optionIndex < 0 || optionIndex >= _pending.Count) return null;
             var opt = _pending[optionIndex];
             if (string.IsNullOrEmpty(opt.RelicId)) return null;
-            _pending.Clear(); // 一个奖励只能选一次
+            _pending.RemoveAll(o => !string.IsNullOrEmpty(o.RelicId)); // 只移除遗物选项
             RunSession.AddRelic(opt.RelicId);
             return opt.RelicId;
         }
