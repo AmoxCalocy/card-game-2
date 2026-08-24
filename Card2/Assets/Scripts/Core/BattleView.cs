@@ -180,6 +180,16 @@ namespace OneJourney.Core
             {
                 ShowRewardPage();
             }
+            else if (CombatManager.Phase == CombatPhase.Defeat && RunSession.CurrentState == GameState.Defeat)
+            {
+                // A2-24：真实主角死亡（已转移 Defeat）→ 进入结算页
+                var ui = FindObjectOfType<GameUi>();
+                if (ui != null)
+                {
+                    RunSession.EnterSettlement(false, "主角阵亡");
+                    ui.ShowSettlement();
+                }
+            }
 
             if (_endTurnButton != null) _endTurnButton.gameObject.SetActive(false);
         }
@@ -358,6 +368,14 @@ namespace OneJourney.Core
             var ui = FindObjectOfType<GameUi>();
             if (ui != null)
             {
+                // A2-24：密林首领胜利（Victory 状态）→ 结算页
+                if (RunSession.CurrentState == GameState.Victory)
+                {
+                    RunSession.EnterSettlement(true, "击败密林首领（垂直切片）");
+                    ui.ShowSettlement();
+                    return;
+                }
+
                 // A2-23：地图战斗（含区域首领胜利后切密林）→ 返回地图继续；测试入口无地图 → 回主菜单
                 if (RegionMap.IsGenerated && RunSession.CurrentState != GameState.MainMenu)
                     ui.ReturnToMap();
@@ -603,8 +621,13 @@ namespace OneJourney.Core
         {
             if (!CombatManager.IsActive) return;
             CombatManager.ForceDefeat();
-            // 不调 End：保持 Defeat 状态让战斗页显示失败结算（RefreshPostCombat）
-            Refresh();
+            CombatManager.End();
+            // A2-24：失败 → Defeat 状态 + 结算页
+            RunSession.EnterDefeatState();
+            RunSession.EnterSettlement(false, "主角阵亡");
+            var ui = FindObjectOfType<GameUi>();
+            if (ui != null) ui.ShowSettlement();
+            else Refresh();
         }
 
         // === 辅助 ===

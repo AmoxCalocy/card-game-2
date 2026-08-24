@@ -143,6 +143,7 @@ namespace OneJourney.Core
             GameFlow.TryTransition(GameState.Map, "新游戏：初始化完成，进入地图");
             Seed = seedOverride ?? RequestedSeedFromArgs() ?? NewSeed();
             Random = new GameRandom(Seed);
+            MarkSessionStart();
             RunRecord.Clear();
             RecordsList.Clear();
             InitCampaignResources();
@@ -177,6 +178,7 @@ namespace OneJourney.Core
 
             Seed = RequestedSeedFromArgs() ?? NewSeed();
             Random = new GameRandom(Seed);
+            MarkSessionStart();
             RunRecord.Clear();
             RecordsList.Clear();
             InitCampaignResources();
@@ -350,6 +352,7 @@ namespace OneJourney.Core
             _relicClinicUsedThisRegion = false;
             _relicEventWealthUsedThisRegion = false;
             LastCampResult = null;
+            LastSettlement = null;
             Changed?.Invoke();
         }
 
@@ -1112,6 +1115,88 @@ namespace OneJourney.Core
 
         // ---- 地图节点战斗（A2-23，配置表 §9）----
 
+        /// <summary>当前区域枚举（CombatManager 结算分流用）。</summary>
+        public static ContentRegion RegionMapRegion()
+        {
+            return RegionMap.Region;
+        }
+
+        // ---- 结局与结算（A2-24）----
+
+        /// <summary>结算摘要：最终牌组/伙伴/资源/建筑/遗物等（进入结算页时快照）。</summary>
+        public static SettlementSummary LastSettlement { get; private set; }
+
+        public class SettlementSummary
+        {
+            public string Result;           // 胜利（垂直切片）/ 失败
+            public string Reason;           // 胜负原因
+            public string RegionProgress;   // 区域进度（如 密林 · 第 4 层）
+            public string Deck;             // 最终牌组摘要
+            public string Partners;         // 伙伴摘要
+            public string Resources;        // 资源摘要
+            public string Buildings;        // 已建建筑
+            public string Relics;           // 持有遗物
+            public int Seed;                // 随机种子
+            public long ElapsedSeconds;     // 本局用时（秒）
+        }
+
+        /// <summary>密林首领胜利：进入 Victory 状态（奖励结算后进结算页）。</summary>
+        public static void EnterVictoryState()
+        {
+            if (GameFlow.CurrentState != GameState.Combat) return;
+            GameFlow.TryTransition(GameState.Victory, "击败密林首领，垂直切片胜利");
+        }
+
+        /// <summary>普通/精英战斗胜利：进入奖励状态（奖励页继续后分流）。</summary>
+        public static void EnterRewardState()
+        {
+            if (GameFlow.CurrentState != GameState.Combat) return;
+            GameFlow.TryTransition(GameState.Reward, "战斗胜利，进入奖励");
+        }
+
+        /// <summary>失败：进入 Defeat 状态（战斗页/结算页处理）。</summary>
+        public static void EnterDefeatState()
+        {
+            if (GameFlow.CurrentState != GameState.Combat) return;
+            GameFlow.TryTransition(GameState.Defeat, "主角阵亡");
+        }
+
+        /// <summary>进入结算页：快照战役摘要并转移 Settlement 状态。</summary>
+        public static void EnterSettlement(bool victory, string reason)
+        {
+            int alivePartners = 0;
+            foreach (var p in PartnerRoster.All)
+            {
+                if (p.IsRecruited && p.IsAlive) alivePartners++;
+            }
+
+            LastSettlement = new SettlementSummary
+            {
+                Result = victory ? "胜利（垂直切片）" : "失败",
+                Reason = reason,
+                RegionProgress = RegionMap.Region == ContentRegion.Jungle
+                    ? "密林 · 第 " + (RegionMap.CurrentLayer > 0 ? RegionMap.CurrentLayer : 1) + " 层"
+                    : "草原 · 第 " + (RegionMap.CurrentLayer > 0 ? RegionMap.CurrentLayer : 1) + " 层",
+                Deck = CampaignDeck != null ? CampaignDeck.Count + " 张" : "无",
+                Partners = alivePartners + " 名存活伙伴",
+                Resources = "粮食" + Food + " 财富" + Wealth + " 建材" + Materials + " 声望" + Reputation,
+                Buildings = BuiltBuildings.Count + " 座",
+                Relics = Relics.Count + " 件",
+                Seed = Seed,
+                ElapsedSeconds = (long)(UnityEngine.Time.realtimeSinceStartup - _sessionStartTime)
+            };
+
+            if (GameFlow.CurrentState == GameState.Victory || GameFlow.CurrentState == GameState.Defeat)
+                GameFlow.TryTransition(GameState.Settlement, "进入结算页：" + reason);
+        }
+
+        private static float _sessionStartTime;
+
+        private static void MarkSessionStart()
+        {
+            _sessionStartTime = UnityEngine.Time.realtimeSinceStartup;
+        }
+
         /// <summary>当前区域名称（奖励池等按区域区分）。</summary>
         public static string RegionDisplayName()
         {
@@ -1148,7 +1233,13 @@ namespace OneJourney.Core
                 ? EncounterConfig.EncounterType.Boss
                 : (node.Type == NodeType.Elite ? EncounterConfig.EncounterType.Elite : EncounterConfig.EncounterType.Normal);
             CombatManager.Init(team, enemies, deck);
-            GameFlow.TryTransition(GameState.Combat, "进入" + RegionMapNode.NodeTypeName(node.Type) + "节点");
+            // 状态转移：奖励/地图等状态进入 Combat（失败则不应返回成功）
+            if (!GameFlow.TryTransition(GameState.Combat, "进入" + RegionMapNode.NodeTypeName(node.Type) + "节点"))
+            {
+                CombatManager.End();
+                return false;
+            }
+
             RecordResolution("战斗", "进入节点战斗",
                 CombatManager.IsActive
                     ? CombatManager.EnemyTeam[0].DisplayName + "（" + RegionMapNode.NodeTypeName(node.Type) + "）"
@@ -1182,7 +1273,12 @@ namespace OneJourney.Core
             AmbushPending = false; // 伏击已触发
             CombatManager.CurrentEncounterType = EncounterConfig.EncounterType.Elite; // 按精英奖励结算
             CombatManager.Init(team, enemies, deck);
-            GameFlow.TryTransition(GameState.Combat, "危机伏击：" + ids.Length + " 名敌人");
+            if (!GameFlow.TryTransition(GameState.Combat, "危机伏击：" + ids.Length + " 名敌人"))
+            {
+                CombatManager.End();
+                return false;
+            }
+
             RecordResolution("战斗", "危机伏击",
                 CombatManager.IsActive ? "触发伏击战斗（按精英奖励结算）" : "初始化失败（检查日志）");
             return true;

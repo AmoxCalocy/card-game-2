@@ -420,6 +420,8 @@ namespace OneJourney.Core
                     CurrentTurnPhase = TurnPhase.None;
                     Energy = 0;
                     RunSession.ClearPendingEventCombatRewards();
+                    // A2-24：主角死亡进入失败状态（Combat→Defeat）
+                    RunSession.EnterDefeatState();
                     RunRecord.Log(RecordCategory.General, "主角死亡，战斗失败");
                     return "defeat";
                 }
@@ -455,9 +457,24 @@ namespace OneJourney.Core
                 // A2-19：事件战斗胜利额外奖励（仅结算一次）
                 RunSession.ApplyPendingEventCombatRewards();
 
-                // A2-23：区域首领胜利 → 区域切换（草原 → 密林；密林首领留待 A2-24 垂直切片结局）
+                // A2-23：区域首领胜利 → 草原首领切密林、密林首领进入垂直切片结局（A2-24）
                 if (CurrentEncounterType == EncounterConfig.EncounterType.Boss)
-                    RunSession.AdvanceToNextRegion();
+                {
+                    if (RunSession.RegionMapRegion() == ContentRegion.Jungle)
+                    {
+                        // 密林首领：垂直切片胜利，进入 Victory 状态（奖励页后进结算页）
+                        RunSession.EnterVictoryState();
+                    }
+                    else
+                    {
+                        RunSession.AdvanceToNextRegion();
+                    }
+                }
+                else
+                {
+                    // 普通/精英胜利：进入奖励状态（Combat→Reward 合法，奖励页继续后分流）
+                    RunSession.EnterRewardState();
+                }
 
                 return "victory";
             }

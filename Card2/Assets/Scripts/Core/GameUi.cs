@@ -289,8 +289,7 @@ namespace OneJourney.Core
             if (_moraleButton != null) _moraleButton.gameObject.SetActive(isCombat && CombatManager.CanPlayerAct);
             // 翻页按钮为测试辅助（切遭遇/切事件），仅测试配置可见
             bool showTestEntries = GameConfigProvider.Active != null
-                && GameConfigProvider.Active.EnableTestEntries
-                && !GameConfigProvider.IsReleaseLocked;
+                && GameConfigProvider.Active.EnableTestEntries                && !GameConfigProvider.IsReleaseLocked;
             bool canSwitchEncounter = showTestEntries
                 && (RunSession.CurrentState == GameState.Combat || RunSession.CurrentState == GameState.Event);
             if (_prevEncounterButton != null) _prevEncounterButton.gameObject.SetActive(canSwitchEncounter);
@@ -299,6 +298,8 @@ namespace OneJourney.Core
             RefreshHandCards();
             // A2-21：营地页只显示营地内容，隐藏其他动态容器与测试按钮区块
             bool isCamp = RunSession.CurrentState == GameState.Camp;
+            // A2-24：结算页只显示结算操作（返回主菜单 / 同种子重开）
+            bool isSettlement = RunSession.CurrentState == GameState.Settlement;
             // 手牌容器仅在营地页强制隐藏；非营地页由 RefreshHandCards 决定（仅战斗状态显示）
             if (_handCardContainer != null && isCamp) _handCardContainer.gameObject.SetActive(false);
             if (_mapNodeContainer != null) _mapNodeContainer.gameObject.SetActive(!isCamp);
@@ -307,8 +308,11 @@ namespace OneJourney.Core
             var combatActions = pagePanel.Find("CombatActions");
             if (combatActions != null) combatActions.gameObject.SetActive(!isCamp);
             var bottomRow = pagePanel.Find("BottomRow");
-            if (bottomRow != null) bottomRow.gameObject.SetActive(!isCamp);
-            if (_campOptionContainer != null) _campOptionContainer.gameObject.SetActive(isCamp);
+            if (bottomRow != null) bottomRow.gameObject.SetActive(!isCamp && !isSettlement);
+            if (_campOptionContainer != null) _campOptionContainer.gameObject.SetActive(isCamp || isSettlement);
+            // 结算页：隐藏返回/指定种子按钮（由结算页自己的按钮替代）
+            if (_returnToMenuButton != null) _returnToMenuButton.gameObject.SetActive(!isCamp && !isSettlement);
+            if (_startWithSeedButton != null) _startWithSeedButton.gameObject.SetActive(!isCamp && !isSettlement);
             if (!isCamp)
             {
                 RefreshMapNodes();
@@ -326,6 +330,13 @@ namespace OneJourney.Core
 
         private void OnStartWithSeed()
         {
+            // A2-24：结算页的「同种子重开」——直接用本局种子重开
+            if (RunSession.CurrentState == GameState.Settlement)
+            {
+                RestartWithSameSeed();
+                return;
+            }
+
             int? seed = null;
             if (_seedInput != null && int.TryParse(_seedInput.text, out int parsed))
             {
@@ -394,6 +405,15 @@ namespace OneJourney.Core
             CombatManager.End();
             // 胜利：弹出独立奖励页（CheckEndCondition 已记录「战斗奖励」）；失败仍刷新战斗页
             if (won && _battleView != null && _battleView.ShowRewardPage()) return;
+
+            // 密林首领胜利 → Victory 状态（奖励页「继续」后进结算页）
+            if (won && RunSession.CurrentState == GameState.Victory)
+            {
+                RunSession.EnterSettlement(true, "击败密林首领（垂直切片）");
+                ShowSettlement();
+                return;
+            }
+
             ShowPage("测试入口：战斗", BuildCombatDescription());
         }
 
@@ -403,8 +423,48 @@ namespace OneJourney.Core
 
             CombatManager.ForceDefeat();
             CombatManager.End();
-            RunSession.RecordResolution("战斗结算", "模拟失败", "主角阵亡，临时状态已清理");
-            ShowPage("测试入口：战斗", BuildCombatDescription());
+            RunSession.EnterDefeatState();
+            RunSession.EnterSettlement(false, "主角阵亡");
+            ShowSettlement();
+        }
+
+        /// <summary>显示结算页（A2-24）：摘要 + 真实按钮（返回主菜单 / 同种子重开）。</summary>
+        public void ShowSettlement()
+        {
+            var s = RunSession.LastSettlement;
+            if (s == null)
+            {
+                ShowPage("结算", "无结算数据。");
+                return;
+            }
+
+            string desc = "【" + s.Result + "】\n";
+            desc += "原因：" + s.Reason + "\n";
+            desc += "用时：" + s.ElapsedSeconds + " 秒\n";
+            desc += "区域进度：" + s.RegionProgress + "\n";
+            desc += "最终牌组：" + s.Deck + "  |  伙伴：" + s.Partners + "\n";
+            desc += "资源：" + s.Resources + "\n";
+            desc += "建筑：" + s.Buildings + "  |  遗物：" + s.Relics + "\n";
+            desc += "随机种子：" + s.Seed + "\n\n";
+            ShowPage("本局结算", desc);
+            RefreshSettlementButtons();
+        }
+
+        /// <summary>结算页操作按钮：返回主菜单 / 同种子重开（复用营地按钮容器显示）。</summary>
+        private void RefreshSettlementButtons()
+        {
+            if (_campOptionContainer == null) return;
+            for (int i = _campOptionContainer.childCount - 1; i >= 0; i--)
+                Destroy(_campOptionContainer.GetChild(i).gameObject);
+
+            _campOptionContainer.gameObject.SetActive(true);
+            Font defaultFont = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+
+            var toMenu = MakeCampButton(defaultFont, "返回主菜单", false);
+            toMenu.GetComponent<Button>().onClick.AddListener(() => { ReturnToMenu(); });
+
+            var restart = MakeCampButton(defaultFont, "同种子重开（种子 " + RunSession.LastSettlement.Seed + "）", false);
+            restart.GetComponent<Button>().onClick.AddListener(() => { RestartWithSameSeed(); });
         }
 
         private void OnEndTurn()
@@ -558,6 +618,15 @@ namespace OneJourney.Core
             // 离开营地后隐藏营地按钮面板（Reset 已回主菜单，面板不随页面切换隐藏）
             if (_campOptionContainer != null) _campOptionContainer.gameObject.SetActive(false);
             ShowMenu();
+        }
+
+        /// <summary>结算页「同种子重开」：用当前局种子重新开始（新局清空战役进度）。</summary>
+        public void RestartWithSameSeed()
+        {
+            int seed = RunSession.Seed;
+            RunSession.Reset();
+            RunSession.StartNewGame(seed);
+            ShowPage("地图（同种子重开）", BuildMapDescription());
         }
 
         /// <summary>返回地图页（A2-23：奖励结算/区域切换后继续地图）。</summary>

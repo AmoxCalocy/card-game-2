@@ -286,5 +286,20 @@ aiEditMode: inherit
 - 测试：`Reward_ClaimCardThenRelic_BothGranted`（先卡后遗物都入账）、`ClaimCard_Elite_KeepsRelicOptions`（领卡后遗物仍在）、`Reward_ClaimRelic_AddsToRunSession` 更新（领遗物后卡牌保留）。
 - 验证：328 用例全绿；Play 精英/首领胜利先领卡再领遗物、两者都消失后出现继续按钮 ✓。
 
+## 2026-08-24 · A2-24 定义 MVP 单局结局与结算页（用户已验证）
+- 完成：
+  - `RunSession.cs` — 结算系统：`SettlementSummary`（结果/原因/用时/区域进度/最终牌组/伙伴/资源/建筑/遗物/种子）+ `LastSettlement` 快照 + `EnterSettlement(victory, reason)`（Victory/Defeat→Settlement 转移）+ `EnterVictoryState`（密林首领胜利）+ `EnterDefeatState`（主角死亡）+ `EnterRewardState`（普通/精英胜利→Reward）+ `MarkSessionStart`（会话计时）+ `RegionMapRegion`；`RestartWithSameSeed` 流程。
+  - `CombatManager.cs` — 胜利分支统一状态转移：首领（密林→Victory / 草原→切区域）、普通/精英→`EnterRewardState`（修复战斗胜利后状态残留 Combat 的 bug）；主角死亡分支自动 `EnterDefeatState`。
+  - `GameUi.cs` — `ShowSettlement`（摘要文本）+ `RefreshSettlementButtons`（结算页真实按钮：返回主菜单 / 同种子重开，复用营地按钮容器）+ `RestartWithSameSeed`（用本局种子新开局）；结算态显隐（隐藏测试按钮行，显示结算按钮容器）。
+  - `BattleView.cs` — `OnSimulateDefeat` 对齐完整结算逻辑（ForceDefeat→End→Defeat→结算页）；`RefreshPostCombat` 真实主角死亡自动进结算页；`OnRewardContinue` 分流 Victory→结算 / Reward+地图→ReturnToMap / Reward 无地图→ReturnToMenu。
+  - `SettlementTests.cs`（新）— 5 个 EditMode 用例：密林首领胜利→Victory→结算、草原首领胜利→切区域（非 Victory）、主角死亡→Defeat→结算、结算摘要（资源/牌组/建筑/遗物/种子）、Reset 清摘要。
+- 修复：
+  - `StartNodeCombat`/`StartAmbushCombat` 未检查 `TryTransition(Combat)` 结果 → Reward 态进入战斗静默失败（密林首领胜利无法进 Victory）；补转移失败 End+return false。
+  - 模拟失败按钮绑 BattleView 旧逻辑（只显示失败文本不进结算页）→ 对齐完整结算流程。
+  - 战斗胜利后 GameFlow 状态残留 Combat（TestPage 半战斗态、按钮消失）→ 胜利统一转移 Reward/Victory。
+  - 结算页「返回主菜单/同种子重开」从描述文字改为真实按钮（复用营地容器）。
+- 说明：正式战役胜利（击败边境首领）留待完整功能阶段；同种子重开走 StartNewGame（清空战役进度）。
+- 验证：Test Runner 全绿（333 用例，含新增 5）；Play 完整链路：新游戏→草原首领胜利→切密林→密林首领胜利→奖励页→结算页（摘要+真实按钮）→返回主菜单/同种子重开 ✓；模拟失败→结算页 ✓；真实主角死亡→结算页 ✓。
+
 ## 进行中
-- 下一步：A2-24 定义 MVP 单局结局与结算页（等待用户指示开始）。
+- 下一步：A3-25 实现安全存档与继续游戏（等待用户指示开始）。
