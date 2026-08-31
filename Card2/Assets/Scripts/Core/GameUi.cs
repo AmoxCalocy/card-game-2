@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -59,8 +60,15 @@ namespace OneJourney.Core
         [Header("地图节点（A2-17）")]
         [SerializeField] private Transform _mapNodeContainer;
 
-        [Header("营地页（A2-21）")]
+        [Header("营地页（A2-21 / 布局优化）")]
         [SerializeField] private Transform _campOptionContainer;
+        [SerializeField] private GameObject _campLayoutRoot;
+        [SerializeField] private Transform _campTeamContainer;
+        [SerializeField] private Transform _campFacilityContainer;
+        [SerializeField] private TMP_Text _campFacilityTitleText;
+        [SerializeField] private CampTeamCardView _campTeamCardPrefab;
+        [SerializeField] private CampFacilityCardView _campFacilityCardPrefab;
+        [SerializeField] private Transform _settlementOptionContainer;
 
         private enum CampPageMode { None, Rest, ClinicCamp, ClinicTown, ClinicRelic, FreeUpgrade, DeckView }
         private CampPageMode _campMode;
@@ -250,6 +258,8 @@ namespace OneJourney.Core
         {
             _menuPanel.SetActive(true);
             _pagePanel.SetActive(false);
+            if (_campOptionContainer != null) _campOptionContainer.gameObject.SetActive(false);
+            if (_settlementOptionContainer != null) _settlementOptionContainer.gameObject.SetActive(false);
             RefreshSaveUi();
             Refresh();
         }
@@ -321,7 +331,10 @@ namespace OneJourney.Core
             if (combatActions != null) combatActions.gameObject.SetActive(!isCamp);
             var bottomRow = pagePanel.Find("BottomRow");
             if (bottomRow != null) bottomRow.gameObject.SetActive(!isCamp && !isSettlement);
-            if (_campOptionContainer != null) _campOptionContainer.gameObject.SetActive(isCamp || isSettlement);
+            ResolveCampLayoutRefs();
+            if (_campOptionContainer != null) _campOptionContainer.gameObject.SetActive(isCamp);
+            if (_campLayoutRoot != null) _campLayoutRoot.SetActive(isCamp);
+            if (_settlementOptionContainer != null) _settlementOptionContainer.gameObject.SetActive(isSettlement);
             // 结算页：隐藏返回/指定种子按钮（由结算页自己的按钮替代）
             if (_returnToMenuButton != null) _returnToMenuButton.gameObject.SetActive(!isCamp && !isSettlement);
             if (_startWithSeedButton != null) _startWithSeedButton.gameObject.SetActive(!isCamp && !isSettlement);
@@ -488,21 +501,26 @@ namespace OneJourney.Core
             RefreshSettlementButtons();
         }
 
-        /// <summary>结算页操作按钮：返回主菜单 / 同种子重开（复用营地按钮容器显示）。</summary>
+        /// <summary>结算页操作按钮：返回主菜单 / 同种子重开。</summary>
         private void RefreshSettlementButtons()
         {
-            if (_campOptionContainer == null) return;
-            for (int i = _campOptionContainer.childCount - 1; i >= 0; i--)
-                Destroy(_campOptionContainer.GetChild(i).gameObject);
+            ResolveCampLayoutRefs();
+            if (_settlementOptionContainer == null) return;
+            ClearChildren(_settlementOptionContainer);
 
-            _campOptionContainer.gameObject.SetActive(true);
-            Font defaultFont = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            if (_campOptionContainer != null) _campOptionContainer.gameObject.SetActive(false);
+            if (_campLayoutRoot != null) _campLayoutRoot.SetActive(false);
+            _settlementOptionContainer.gameObject.SetActive(true);
+            TMP_FontAsset defaultFont = _campFacilityTitleText != null && _campFacilityTitleText.font != null
+                ? _campFacilityTitleText.font
+                : TMP_Settings.defaultFontAsset;
 
-            var toMenu = MakeCampButton(defaultFont, "返回主菜单", false);
-            toMenu.GetComponent<Button>().onClick.AddListener(() => { ReturnToMenu(); });
+            var toMenu = MakeCampSimpleButton(_settlementOptionContainer, defaultFont, "返回主菜单", false);
+            toMenu.GetComponent<Button>().onClick.AddListener(ReturnToMenu);
 
-            var restart = MakeCampButton(defaultFont, "同种子重开（种子 " + RunSession.LastSettlement.Seed + "）", false);
-            restart.GetComponent<Button>().onClick.AddListener(() => { RestartWithSameSeed(); });
+            var restart = MakeCampSimpleButton(_settlementOptionContainer, defaultFont,
+                "同种子重开（种子 " + RunSession.LastSettlement.Seed + "）", false);
+            restart.GetComponent<Button>().onClick.AddListener(RestartWithSameSeed);
         }
 
         private void OnEndTurn()
@@ -653,8 +671,8 @@ namespace OneJourney.Core
         public void ReturnToMenu()
         {
             RunSession.Reset();
-            // 离开营地后隐藏营地按钮面板（Reset 已回主菜单，面板不随页面切换隐藏）
             if (_campOptionContainer != null) _campOptionContainer.gameObject.SetActive(false);
+            if (_settlementOptionContainer != null) _settlementOptionContainer.gameObject.SetActive(false);
             ShowMenu();
         }
 
@@ -979,18 +997,10 @@ namespace OneJourney.Core
 
         private void ShowCampPage(string result)
         {
-            string desc = "营地（基础服务 + 建筑）\n" + BuildResourceLine() + "\n\n";
-            desc += "篝火休整：选择 1 名存活单位移除 1 层疲劳（无成本，仅营地节点）\n";
-            foreach (var b in BuildingCatalog.All)
-            {
-                string status = RunSession.HasBuilding(b.Id) ? "【已建】" : "";
-                string pre = b.RequiresBossDefeated && !RunSession.GrasslandBossDefeated ? "（需先击败草原首领）" : "";
-                desc += (b.Type == BuildingType.Town ? "城镇建筑 " : "营地建筑 ") + b.DisplayName + status + pre
-                    + "：" + CampCostText(b) + " | " + b.EffectText + "\n";
-            }
-
-            if (!string.IsNullOrEmpty(result)) desc += "\n" + result + "\n";
-            ShowPage("营地", desc);
+            string desc = BuildResourceLine();
+            desc += "\n左侧查看队伍状态；右侧选择营地服务或建筑入口。";
+            if (!string.IsNullOrEmpty(result)) desc += "\n最近结算：" + result;
+            ShowPage("营地整备", desc);
             RefreshCampButtons();
         }
 
@@ -1005,119 +1015,204 @@ namespace OneJourney.Core
 
         private void RefreshCampButtons()
         {
-            if (_campOptionContainer == null) return;
-            for (int i = _campOptionContainer.childCount - 1; i >= 0; i--)
-                Destroy(_campOptionContainer.GetChild(i).gameObject);
-
-            Font defaultFont = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-
-            // 子选择模式：单位/卡按钮 + 返回
-            if (_campMode != CampPageMode.None)
+            ResolveCampLayoutRefs();
+            if (_campTeamContainer == null || _campFacilityContainer == null) return;
+            if (_campTeamCardPrefab == null || _campFacilityCardPrefab == null)
             {
-                if (_campMode == CampPageMode.Rest) RenderCampStatusUnits(defaultFont, true, false);
-                else if (_campMode == CampPageMode.ClinicCamp) RenderCampStatusUnits(defaultFont, false, true);
-                else if (_campMode == CampPageMode.ClinicTown) RenderCampStatusUnits(defaultFont, true, true);
-                else if (_campMode == CampPageMode.ClinicRelic) RenderCampStatusUnits(defaultFont, true, true);
-                else if (_campMode == CampPageMode.FreeUpgrade) RenderCampUpgradeCards(defaultFont);
-                else if (_campMode == CampPageMode.DeckView) RenderCampDeck(defaultFont);
-
-                var back = MakeCampButton(defaultFont, "← 返回营地主菜单", false);
-                back.GetComponent<Button>().onClick.AddListener(() => { _campMode = CampPageMode.None; ShowCampPage(""); });
+                Debug.LogError("[GameUi] 营地卡片 Prefab 引用缺失", this);
                 return;
             }
 
-            // 篝火休整（S01）
-            if (RunSession.PlayerFatigue > 0 || AnyCampPartnerWith(p => p.Fatigue > 0))
+            ClearChildren(_campTeamContainer);
+            ClearChildren(_campFacilityContainer);
+            if (_campLayoutRoot != null) _campLayoutRoot.SetActive(true);
+            if (_settlementOptionContainer != null) _settlementOptionContainer.gameObject.SetActive(false);
+
+            RenderCampTeamRoster();
+
+            if (_campFacilityTitleText != null) _campFacilityTitleText.text = CampModeTitle();
+            if (_campMode == CampPageMode.None)
             {
-                var rest = MakeCampButton(defaultFont, "篝火休整（移除 1 层疲劳）", false);
-                rest.GetComponent<Button>().onClick.AddListener(() => { _campMode = CampPageMode.Rest; ShowCampPage(""); });
+                RenderCampMainFacilities();
+            }
+            else if (_campMode == CampPageMode.FreeUpgrade)
+            {
+                RenderCampUpgradeCards();
+            }
+            else if (_campMode == CampPageMode.DeckView)
+            {
+                RenderCampDeck();
+            }
+            else
+            {
+                RenderCampSelectionPrompt();
             }
 
-            // 牌组管理：查看当前战役牌组
-            var deckBtn = MakeCampButton(defaultFont, "查看牌组（" + (RunSession.CampaignDeck != null ? RunSession.CampaignDeck.Count : 0) + " 张）", RunSession.CampaignDeck == null);
-            deckBtn.GetComponent<Button>().onClick.AddListener(() => { _campMode = CampPageMode.DeckView; ShowCampPage(""); });
-
-            // 建筑：未建 → 建造；已建 → 服务入口（B02 救治 / B03 免费升级 / B04 医馆）
-            foreach (var b in BuildingCatalog.All)
-            {
-                if (RunSession.HasBuilding(b.Id))
-                {
-                    if (b.Id == "B02")
-                    {
-                        var svc = MakeCampButton(defaultFont, b.DisplayName + "：救治（移除 1 层疾病）", false);
-                        svc.GetComponent<Button>().onClick.AddListener(() => { _campMode = CampPageMode.ClinicCamp; ShowCampPage(""); });
-                    }
-                    else if (b.Id == "B03" && RunSession.FreeUpgradePending)
-                    {
-                        var svc = MakeCampButton(defaultFont, b.DisplayName + "：免费升级 1 张卡", false);
-                        svc.GetComponent<Button>().onClick.AddListener(() => { _campMode = CampPageMode.FreeUpgrade; ShowCampPage(""); });
-                    }
-                    else if (b.Id == "B04")
-                    {
-                        var svc = MakeCampButton(defaultFont, b.DisplayName + "：医馆服务（移除疾病/疲劳）", false);
-                        svc.GetComponent<Button>().onClick.AddListener(() => { _campMode = CampPageMode.ClinicTown; ShowCampPage(""); });
-                    }
-                    else
-                    {
-                        MakeCampButton(defaultFont, b.DisplayName + "（已建）", true);
-                    }
-                }
-                else
-                {
-                    string block = RunSession.BuildBlockReason(b.Id);
-                    var go = MakeCampButton(defaultFont, "建造 " + b.DisplayName + "（" + CampCostText(b) + "）", block != null);
-                    if (block == null)
-                    {
-                        string captured = b.Id;
-                        go.GetComponent<Button>().onClick.AddListener(() =>
-                        {
-                            RunSession.TryBuildBuilding(captured);
-                            ShowCampPage("");
-                        });
-                    }
-                }
-            }
-
-            // R04 医师药箱：每区域首次进营地可选移除疾病/疲劳
-            if (RunSession.RelicClinicAvailable)
-            {
-                var clinic = MakeCampButton(defaultFont, "医师药箱：移除疾病/疲劳（每区域一次）", false);
-                clinic.GetComponent<Button>().onClick.AddListener(() => { _campMode = CampPageMode.ClinicRelic; ShowCampPage(""); });
-            }
-
-            var ret = MakeCampButton(defaultFont, "离开营地", false);
-            ret.GetComponent<Button>().onClick.AddListener(OnCampLeave);
+            LayoutRebuilder.ForceRebuildLayoutImmediate((RectTransform)_campTeamContainer);
+            LayoutRebuilder.ForceRebuildLayoutImmediate((RectTransform)_campFacilityContainer);
         }
 
-        private void RenderCampStatusUnits(Font defaultFont, bool fatigue, bool disease)
+        private void RenderCampMainFacilities()
         {
-            if (fatigue && RunSession.PlayerFatigue > 0)
-            {
-                var go = MakeCampButton(defaultFont, "主角（疲劳 " + RunSession.PlayerFatigue + "）", false);
-                go.GetComponent<Button>().onClick.AddListener(() => CampServiceChosen("PLAYER", false));
-            }
+            bool hasFatigue = RunSession.PlayerFatigue > 0 || AnyCampPartnerWith(p => p.Fatigue > 0);
+            var rest = MakeCampFacilityButton("篝火休整", "选择一名队员移除 1 层疲劳", !hasFatigue,
+                new Color(0.42f, 0.30f, 0.20f));
+            if (hasFatigue) rest.GetComponent<Button>().onClick.AddListener(() => { _campMode = CampPageMode.Rest; ShowCampPage(""); });
 
-            if (disease && RunSession.PlayerDisease > 0)
-            {
-                var go = MakeCampButton(defaultFont, "主角（疾病 " + RunSession.PlayerDisease + "）", false);
-                go.GetComponent<Button>().onClick.AddListener(() => CampServiceChosen("PLAYER", true));
-            }
+            var deck = MakeCampFacilityButton("牌组管理",
+                "查看当前战役牌组 · " + (RunSession.CampaignDeck != null ? RunSession.CampaignDeck.Count : 0) + " 张",
+                RunSession.CampaignDeck == null, new Color(0.25f, 0.34f, 0.48f));
+            if (RunSession.CampaignDeck != null)
+                deck.GetComponent<Button>().onClick.AddListener(() => { _campMode = CampPageMode.DeckView; ShowCampPage(""); });
 
-            foreach (var p in PartnerRoster.All)
+            foreach (var building in BuildingCatalog.All)
             {
-                if (!p.IsRecruited || !p.IsAlive) continue;
-                string pid = p.Def.Id;
-                if (fatigue && p.Fatigue > 0)
+                bool built = RunSession.HasBuilding(building.Id);
+                if (!built)
                 {
-                    var go = MakeCampButton(defaultFont, p.Def.DisplayName + "（疲劳 " + p.Fatigue + "）", false);
-                    go.GetComponent<Button>().onClick.AddListener(() => CampServiceChosen(pid, false));
+                    string block = RunSession.BuildBlockReason(building.Id);
+                    string detail = "未建设 · " + CampCostText(building) + "\n" + building.EffectText;
+                    if (block != null) detail += "\n锁定：" + block;
+                    var build = MakeCampFacilityButton(building.DisplayName, detail, block != null,
+                        new Color(0.30f, 0.38f, 0.48f));
+                    if (block == null)
+                    {
+                        string captured = building.Id;
+                        build.GetComponent<Button>().onClick.AddListener(() =>
+                        {
+                            string result = RunSession.TryBuildBuilding(captured);
+                            ShowCampPage(result);
+                        });
+                    }
+                    continue;
                 }
 
-                if (disease && p.Disease > 0)
+                bool serviceAvailable = false;
+                string builtDetail = "已建成\n" + building.EffectText;
+                CampPageMode nextMode = CampPageMode.None;
+                if (building.Id == "B02")
                 {
-                    var go = MakeCampButton(defaultFont, p.Def.DisplayName + "（疾病 " + p.Disease + "）", false);
-                    go.GetComponent<Button>().onClick.AddListener(() => CampServiceChosen(pid, true));
+                    serviceAvailable = true;
+                    nextMode = CampPageMode.ClinicCamp;
+                    builtDetail = "已建成 · 可使用\n选择一名队员移除 1 层疾病";
                 }
+                else if (building.Id == "B03")
+                {
+                    serviceAvailable = RunSession.FreeUpgradePending;
+                    nextMode = CampPageMode.FreeUpgrade;
+                    builtDetail = serviceAvailable ? "已建成 · 免费升级待使用\n选择一张卡牌升级" : "已建成\n本次免费升级已使用";
+                }
+                else if (building.Id == "B04")
+                {
+                    serviceAvailable = true;
+                    nextMode = CampPageMode.ClinicTown;
+                    builtDetail = "已建成 · 可使用\n选择一名队员移除疾病或疲劳";
+                }
+
+                var builtEntry = MakeCampFacilityButton(building.DisplayName, builtDetail, !serviceAvailable,
+                    new Color(0.25f, 0.42f, 0.32f));
+                if (serviceAvailable)
+                {
+                    CampPageMode capturedMode = nextMode;
+                    builtEntry.GetComponent<Button>().onClick.AddListener(() => { _campMode = capturedMode; ShowCampPage(""); });
+                }
+            }
+
+            if (RunSession.HasRelic("R04"))
+            {
+                bool available = RunSession.RelicClinicAvailable;
+                var relic = MakeCampFacilityButton("医师药箱（遗物）",
+                    available ? "本区域可使用一次\n选择队员移除疾病或疲劳" : "本区域已经使用",
+                    !available, new Color(0.48f, 0.38f, 0.20f));
+                if (available)
+                    relic.GetComponent<Button>().onClick.AddListener(() => { _campMode = CampPageMode.ClinicRelic; ShowCampPage(""); });
+            }
+
+            var leave = MakeCampFacilityButton("离开营地", "返回区域地图，继续旅程", false,
+                new Color(0.42f, 0.24f, 0.22f));
+            leave.GetComponent<Button>().onClick.AddListener(OnCampLeave);
+        }
+
+        private void RenderCampSelectionPrompt()
+        {
+            MakeCampFacilityButton(CampModeTitle(), CampModeInstruction(), true,
+                new Color(0.28f, 0.32f, 0.40f));
+            var back = MakeCampFacilityButton("返回设施列表", "取消当前选择", false,
+                new Color(0.25f, 0.34f, 0.48f));
+            back.GetComponent<Button>().onClick.AddListener(() => { _campMode = CampPageMode.None; ShowCampPage(""); });
+        }
+
+        private string CampModeTitle()
+        {
+            switch (_campMode)
+            {
+                case CampPageMode.Rest: return "篝火休整";
+                case CampPageMode.ClinicCamp: return "野战医棚";
+                case CampPageMode.ClinicTown: return "医馆服务";
+                case CampPageMode.ClinicRelic: return "医师药箱";
+                case CampPageMode.FreeUpgrade: return "铁匠铺 · 免费升级";
+                case CampPageMode.DeckView: return "战役牌组";
+                default: return "设施与建筑";
+            }
+        }
+
+        private string CampModeInstruction()
+        {
+            switch (_campMode)
+            {
+                case CampPageMode.Rest: return "请在左侧队伍中选择有疲劳的成员。";
+                case CampPageMode.ClinicCamp: return "请在左侧队伍中选择有疾病的成员。";
+                case CampPageMode.ClinicTown:
+                case CampPageMode.ClinicRelic: return "请在左侧选择队员，并选择移除疲劳或疾病。";
+                default: return "请选择操作。";
+            }
+        }
+
+        private void RenderCampTeamRoster()
+        {
+            MakeCampTeamCard("PLAYER", "主角", "上阵 · 指挥核心",
+                true, RunSession.PlayerFatigue, RunSession.PlayerDisease);
+
+            foreach (var partner in PartnerRoster.All)
+            {
+                if (!partner.IsRecruited) continue;
+                string position = partner.IsAlive
+                    ? (partner.IsInActiveTeam ? "上阵" : "后备")
+                    : "阵亡";
+                string detail = position + " · " + partner.Def.Role
+                    + " · HP " + partner.CurrentHp + "/" + partner.EffectiveMaxHp
+                    + " · 忠诚 " + partner.Loyalty;
+                MakeCampTeamCard(partner.Def.Id, partner.Def.DisplayName, detail,
+                    partner.IsAlive, partner.Fatigue, partner.Disease);
+            }
+        }
+
+        private void MakeCampTeamCard(string unitId, string displayName, string detail,
+            bool alive, int fatigue, int disease)
+        {
+            var view = Instantiate(_campTeamCardPrefab, _campTeamContainer);
+            view.name = "CampDynamic_Team_" + unitId;
+            view.SetContent(displayName, detail, alive, fatigue, disease);
+
+            bool canFatigue = alive && fatigue > 0
+                && (_campMode == CampPageMode.Rest || _campMode == CampPageMode.ClinicTown || _campMode == CampPageMode.ClinicRelic);
+            bool canDisease = alive && disease > 0
+                && (_campMode == CampPageMode.ClinicCamp || _campMode == CampPageMode.ClinicTown || _campMode == CampPageMode.ClinicRelic);
+
+            if (canFatigue)
+            {
+                string captured = unitId;
+                view.SetPrimaryAction(
+                    _campMode == CampPageMode.Rest ? "休整" : "减疲劳",
+                    new Color(0.42f, 0.30f, 0.20f),
+                    () => CampServiceChosen(captured, false));
+            }
+
+            if (canDisease)
+            {
+                string captured = unitId;
+                view.SetSecondaryAction("治病", new Color(0.25f, 0.42f, 0.32f),
+                    () => CampServiceChosen(captured, true));
             }
         }
 
@@ -1132,43 +1227,67 @@ namespace OneJourney.Core
             ShowCampPage(result);
         }
 
-        private void RenderCampUpgradeCards(Font defaultFont)
+        private void RenderCampUpgradeCards()
         {
-            if (RunSession.CampaignDeck == null) return;
-            var seen = new HashSet<string>();
-            foreach (var id in RunSession.CampaignDeck.Cards)
+            bool any = false;
+            if (RunSession.CampaignDeck != null)
             {
-                if (!seen.Add(id)) continue;
-                var c = CardCatalog.Find(id);
-                var go = MakeCampButton(defaultFont, "升级 " + (c != null ? c.DisplayName : id), false);
-                string captured = id;
-                go.GetComponent<Button>().onClick.AddListener(() =>
+                var seen = new HashSet<string>();
+                foreach (var id in RunSession.CampaignDeck.Cards)
                 {
-                    string result = RunSession.FreeUpgradeCard(captured);
-                    _campMode = CampPageMode.None;
-                    ShowCampPage(result);
-                });
+                    if (!seen.Add(id) || RunSession.CampaignDeck.UpgradedCards.Contains(id)) continue;
+                    var card = CardCatalog.Find(id);
+                    string displayName = card != null ? card.DisplayName : id;
+                    var go = MakeCampFacilityButton("升级 " + displayName,
+                        card != null ? card.EffectText : id, false, new Color(0.30f, 0.38f, 0.48f));
+                    string captured = id;
+                    go.GetComponent<Button>().onClick.AddListener(() =>
+                    {
+                        string result = RunSession.FreeUpgradeCard(captured);
+                        _campMode = CampPageMode.None;
+                        ShowCampPage(result);
+                    });
+                    any = true;
+                }
             }
+
+            if (!any)
+                MakeCampFacilityButton("没有可升级卡牌", "牌组中的卡牌均已升级或牌组不可用", true,
+                    new Color(0.22f, 0.24f, 0.28f));
+            AddCampBackButton();
         }
 
-        /// <summary>营地牌组管理：列出战役牌组全部卡牌（含数量）与升级标记。</summary>
-        private void RenderCampDeck(Font defaultFont)
+        /// <summary>营地牌组管理：右侧设施区列出战役牌组全部卡牌（含数量）与升级标记。</summary>
+        private void RenderCampDeck()
         {
-            if (RunSession.CampaignDeck == null) return;
-            var counts = new Dictionary<string, int>();
-            foreach (var id in RunSession.CampaignDeck.Cards)
+            if (RunSession.CampaignDeck != null)
             {
-                counts.TryGetValue(id, out int n);
-                counts[id] = n + 1;
+                var counts = new Dictionary<string, int>();
+                foreach (var id in RunSession.CampaignDeck.Cards)
+                {
+                    counts.TryGetValue(id, out int count);
+                    counts[id] = count + 1;
+                }
+
+                foreach (var pair in counts)
+                {
+                    var card = CardCatalog.Find(pair.Key);
+                    string upgraded = RunSession.CampaignDeck.UpgradedCards.Contains(pair.Key) ? " · 已升级 ★" : "";
+                    MakeCampFacilityButton(
+                        (card != null ? card.DisplayName : pair.Key) + " ×" + pair.Value,
+                        (card != null ? card.EffectText : pair.Key) + upgraded, true,
+                        new Color(0.24f, 0.30f, 0.39f));
+                }
             }
 
-            foreach (var kv in counts)
-            {
-                var c = CardCatalog.Find(kv.Key);
-                string upgraded = RunSession.CampaignDeck.UpgradedCards.Contains(kv.Key) ? " ★" : "";
-                string label = (c != null ? c.DisplayName : kv.Key) + " ×" + kv.Value + upgraded;
-                MakeCampButton(defaultFont, label, true);
-            }
+            AddCampBackButton();
+        }
+
+        private void AddCampBackButton()
+        {
+            var back = MakeCampFacilityButton("返回设施列表", "返回营地主界面", false,
+                new Color(0.25f, 0.34f, 0.48f));
+            back.GetComponent<Button>().onClick.AddListener(() => { _campMode = CampPageMode.None; ShowCampPage(""); });
         }
 
         private static bool AnyCampPartnerWith(System.Func<PartnerState, bool> pred)
@@ -1195,41 +1314,70 @@ namespace OneJourney.Core
             }
         }
 
-        private GameObject MakeCampButton(Font font, string label, bool disabled)
+        private GameObject MakeCampFacilityButton(string title, string detail, bool disabled, Color color)
         {
-            var go = new GameObject("CO_" + label, typeof(RectTransform), typeof(Image), typeof(Button), typeof(LayoutElement));
-            go.transform.SetParent(_campOptionContainer, false);
+            var view = Instantiate(_campFacilityCardPrefab, _campFacilityContainer);
+            view.name = "CampDynamic_Facility_" + title;
+            view.SetContent(title, detail, disabled, color);
+            return view.gameObject;
+        }
 
-            var img = go.GetComponent<Image>();
-            img.color = disabled ? new Color(0.25f, 0.25f, 0.25f) : new Color(0.3f, 0.45f, 0.6f);
+        private static GameObject MakeCampSimpleButton(Transform parent, TMP_FontAsset font, string label, bool disabled)
+        {
+            var go = new GameObject("CampDynamic_Action_" + label,
+                typeof(RectTransform), typeof(Image), typeof(Button), typeof(LayoutElement));
+            go.transform.SetParent(parent, false);
+            var image = go.GetComponent<Image>();
+            image.color = disabled ? new Color(0.25f, 0.25f, 0.25f) : new Color(0.30f, 0.45f, 0.60f);
+            var button = go.GetComponent<Button>();
+            button.targetGraphic = image;
+            button.interactable = !disabled;
+            var element = go.GetComponent<LayoutElement>();
+            element.minWidth = 520;
+            element.preferredWidth = 520;
+            element.minHeight = 52;
+            element.preferredHeight = 52;
 
-            var le = go.GetComponent<LayoutElement>();
-            le.minWidth = 160;
-            le.preferredWidth = label.Length * 18 + 32;
-            le.minHeight = 38;
-            le.preferredHeight = 38;
-
-            var textGo = new GameObject("Text", typeof(RectTransform), typeof(Text));
+            var textGo = new GameObject("Text", typeof(RectTransform), typeof(TextMeshProUGUI));
             textGo.transform.SetParent(go.transform, false);
-
-            var text = textGo.GetComponent<Text>();
+            var text = textGo.GetComponent<TextMeshProUGUI>();
             text.text = label;
             text.font = font;
-            text.fontSize = 16;
-            text.alignment = TextAnchor.MiddleCenter;
+            text.fontSize = 18;
+            text.alignment = TextAlignmentOptions.Center;
             text.color = Color.white;
             text.raycastTarget = false;
-            text.horizontalOverflow = HorizontalWrapMode.Wrap;
-            text.verticalOverflow = VerticalWrapMode.Truncate;
-
-            var textRt = (RectTransform)textGo.transform;
-            textRt.anchorMin = Vector2.zero;
-            textRt.anchorMax = Vector2.one;
-            textRt.offsetMin = new Vector2(8, 2);
-            textRt.offsetMax = new Vector2(-8, -2);
-
-            go.GetComponent<Button>().interactable = !disabled;
+            var rect = (RectTransform)textGo.transform;
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.sizeDelta = Vector2.zero;
             return go;
+        }
+
+        private void ResolveCampLayoutRefs()
+        {
+            if (_campOptionContainer == null) return;
+            var layout = _campOptionContainer.Find("CampLayout");
+            if (_campLayoutRoot == null && layout != null) _campLayoutRoot = layout.gameObject;
+            if (_campTeamContainer == null && layout != null)
+                _campTeamContainer = layout.Find("TeamPanel/TeamScroll/Viewport/TeamList");
+            if (_campFacilityContainer == null && layout != null)
+                _campFacilityContainer = layout.Find("FacilityPanel/FacilityScroll/Viewport/FacilityGrid");
+            if (_campFacilityTitleText == null && layout != null)
+                _campFacilityTitleText = layout.Find("FacilityPanel/Title")?.GetComponent<TMP_Text>();
+            if (_settlementOptionContainer == null && _campOptionContainer.parent != null)
+                _settlementOptionContainer = _campOptionContainer.parent.Find("SettlementActions");
+        }
+
+        private void ClearChildren(Transform container)
+        {
+            if (container == null) return;
+            for (int i = container.childCount - 1; i >= 0; i--)
+            {
+                var child = container.GetChild(i).gameObject;
+                child.SetActive(false);
+                Destroy(child);
+            }
         }
 
         private void ShowEventPage()
