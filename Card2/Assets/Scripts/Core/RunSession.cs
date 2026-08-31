@@ -79,6 +79,9 @@ namespace OneJourney.Core
         /// <summary>本局已持有的遗物 ID（去重，A2-19 事件授予；遗物效果 A2-22 接入）。</summary>
         public static readonly List<string> Relics = new List<string>();
 
+        /// <summary>本局已完成的事件 ID，作为后续事件分支与存档迁移的稳定标记。</summary>
+        public static readonly List<string> EventFlags = new List<string>();
+
         /// <summary>事件战斗胜利额外奖励（触发事件战斗时暂存，胜利后结算一次）。</summary>
         private static EventOptionDef _pendingEventCombatReward;
 
@@ -149,6 +152,7 @@ namespace OneJourney.Core
             InitCampaignResources();
             GrasslandBossDefeated = false; // 新局首领击败标记清零（测试入口间保留的进度在新局不继承）
             Relics.Clear(); // 新局遗物清零（测试入口间保留的遗物在新局不继承）
+            EventFlags.Clear();
             if (CampaignDeck == null)
                 CampaignDeck = new CampaignDeck(GameStartParameters.StartingDeck);
 
@@ -162,6 +166,7 @@ namespace OneJourney.Core
                 + " 建材" + GameStartParameters.StartBuildingMaterials
                 + "；起始牌组 " + GameStartParameters.StartingDeck.Length + " 张"
                 + (mapOk ? "；草原地图已生成" : "；地图生成失败"));
+            CampaignSaveService.TryAutosave(SaveCheckpointKind.Map, out _);
         }
 
         public static void EnterTestPage(GameState page)
@@ -344,6 +349,7 @@ namespace OneJourney.Core
             _pendingEventCombatReward = null;
             LastCombatRewardText = null;
             BuiltBuildings.Clear();
+            EventFlags.Clear();
             // 首领击败标记跨测试入口保留（测试入口共享战役进度；新游戏 StartNewGame 时清零）
             _campBonusUsedThisRegion = false;
             _eventWealthBonusUsedThisRegion = false;
@@ -511,6 +517,7 @@ namespace OneJourney.Core
             FinishEvent(opt);
             RecordResolution("事件", evtName + "：" + opt.Label,
                 (payText.Length > 0 ? payText.Trim() + "；" : "") + result);
+            CampaignSaveService.TryAutosave(SaveCheckpointKind.Map, out _);
             return result;
         }
 
@@ -549,6 +556,7 @@ namespace OneJourney.Core
             PendingEventOptionIndex = -1;
             FinishEvent(opt);
             RecordResolution("事件", evtName + "：" + opt.Label, detail);
+            CampaignSaveService.TryAutosave(SaveCheckpointKind.Map, out _);
             return detail;
         }
 
@@ -603,6 +611,7 @@ namespace OneJourney.Core
             PendingEventOptionIndex = -1;
             FinishEvent(opt);
             RecordResolution("事件", evtName + "：" + opt.Label, detail);
+            CampaignSaveService.TryAutosave(SaveCheckpointKind.Map, out _);
             return detail;
         }
 
@@ -616,6 +625,7 @@ namespace OneJourney.Core
             if (RegionMap.IsGenerated)
             {
                 GameFlow.TryTransition(GameState.Map, "事件无可选项，返回地图");
+                CampaignSaveService.TryAutosave(SaveCheckpointKind.Map, out _);
             }
         }
 
@@ -676,6 +686,8 @@ namespace OneJourney.Core
                 }
             }
 
+            if (!string.IsNullOrEmpty(CurrentEvent.Id) && !EventFlags.Contains(CurrentEvent.Id))
+                EventFlags.Add(CurrentEvent.Id);
             CurrentEvent = null;
             string result = effects.Count > 0 ? string.Join("；", effects) : opt.ResultText;
             RecordResolution("事件", "事件战斗胜利", result);
@@ -794,6 +806,7 @@ namespace OneJourney.Core
                 "支付 财富" + b.CostWealth + " 建材" + b.CostMaterial + " 声望" + b.CostReputation
                 + "（当前 财富" + Wealth + " 建材" + Materials + " 声望" + Reputation + "）；" + b.EffectText);
             LastCampResult = "建成 " + b.DisplayName + "：" + b.EffectText;
+            CampaignSaveService.TryAutosave(SaveCheckpointKind.Camp, out _);
             return LastCampResult;
         }
 
@@ -821,6 +834,7 @@ namespace OneJourney.Core
             string result = string.Join("；", effects);
             LastCampResult = result;
             RecordResolution("营地", "进入营地", result);
+            CampaignSaveService.TryAutosave(SaveCheckpointKind.Camp, out _);
             return result;
         }
 
@@ -845,6 +859,7 @@ namespace OneJourney.Core
             string result = name + " 移除 1 层疲劳";
             LastCampResult = result;
             RecordResolution("营地", "篝火休整", result);
+            CampaignSaveService.TryAutosave(SaveCheckpointKind.Camp, out _);
             return result;
         }
 
@@ -907,6 +922,7 @@ namespace OneJourney.Core
             string result = name + " 移除 1 层" + (removeDisease ? "疾病" : "疲劳");
             LastCampResult = result;
             RecordResolution("建筑", source, result);
+            CampaignSaveService.TryAutosave(SaveCheckpointKind.Camp, out _);
             return result;
         }
 
@@ -924,6 +940,7 @@ namespace OneJourney.Core
             string name = c != null ? c.DisplayName : cardId;
             LastCampResult = "铁匠铺免费升级：" + name + " 已升级";
             RecordResolution("建筑", "铁匠铺免费升级", name + " 已升级");
+            CampaignSaveService.TryAutosave(SaveCheckpointKind.Camp, out _);
             return LastCampResult;
         }
 
@@ -1082,6 +1099,8 @@ namespace OneJourney.Core
         private static void FinishEvent(EventOptionDef opt)
         {
             string evtName = CurrentEvent != null ? CurrentEvent.DisplayName : "事件";
+            if (CurrentEvent != null && !string.IsNullOrEmpty(CurrentEvent.Id) && !EventFlags.Contains(CurrentEvent.Id))
+                EventFlags.Add(CurrentEvent.Id);
             CurrentEvent = null;
             RunRecord.Log(RecordCategory.EventChoice, "事件 " + evtName + " 结算完成");
             if (RegionMap.IsGenerated)
@@ -1164,6 +1183,7 @@ namespace OneJourney.Core
         /// <summary>进入结算页：快照战役摘要并转移 Settlement 状态。</summary>
         public static void EnterSettlement(bool victory, string reason)
         {
+            CombatManager.End();
             int alivePartners = 0;
             foreach (var p in PartnerRoster.All)
             {
@@ -1188,6 +1208,7 @@ namespace OneJourney.Core
 
             if (GameFlow.CurrentState == GameState.Victory || GameFlow.CurrentState == GameState.Defeat)
                 GameFlow.TryTransition(GameState.Settlement, "进入结算页：" + reason);
+            CampaignSaveService.DeleteActiveSave();
         }
 
         private static float _sessionStartTime;
@@ -1379,6 +1400,7 @@ namespace OneJourney.Core
                 + RegionMapNode.NodeTypeName(node.Type) + "）；" + string.Join("；", effects)
                 + "。粮食 " + foodBefore + " → " + Food;
             RecordResolution("地图移动", "移动到 " + node.DisplayName + "（第 " + node.Layer + " 层）", result);
+            CampaignSaveService.TryAutosave(SaveCheckpointKind.NodeEntry, out _);
             return result;
         }
 
@@ -1393,6 +1415,301 @@ namespace OneJourney.Core
                     return;
                 }
             }
+        }
+
+        // ---- 安全存档与继续游戏（A3-25）----
+
+        public static bool TryContinue(out string message)
+        {
+            if (!CampaignSaveService.TryLoad(out SaveCheckpointKind checkpoint, out message))
+            {
+                return false;
+            }
+
+            if (checkpoint == SaveCheckpointKind.NodeEntry && !ResumeLoadedNode(out string resumeIssue))
+            {
+                message = "存档已读取，但节点恢复失败：" + resumeIssue;
+                ClearForLoad();
+                Changed?.Invoke();
+                return false;
+            }
+
+            RecordResolution("存档", "继续游戏", message);
+            return true;
+        }
+
+        private static bool ResumeLoadedNode(out string issue)
+        {
+            issue = null;
+            if (CurrentState != GameState.Move || RegionMap.CurrentNodeIndex < 0
+                || RegionMap.CurrentNodeIndex >= RegionMap.Nodes.Count)
+            {
+                issue = "节点入口状态无效";
+                return false;
+            }
+
+            var node = RegionMap.Nodes[RegionMap.CurrentNodeIndex];
+            if (node.Type == NodeType.Event)
+            {
+                if (AmbushPending)
+                {
+                    if (StartAmbushCombat()) return true;
+                    issue = "危机伏击初始化失败";
+                    return false;
+                }
+
+                if (StartEventFromNode(node)) return true;
+                issue = "事件初始化失败";
+                return false;
+            }
+
+            if (node.Type == NodeType.Camp)
+            {
+                if (!GameFlow.TryTransition(GameState.Camp, "继续游戏：恢复营地节点"))
+                {
+                    issue = "无法进入营地状态";
+                    return false;
+                }
+
+                EnterCampNode();
+                return true;
+            }
+
+            if (StartNodeCombat(node)) return true;
+            issue = "节点战斗初始化失败";
+            return false;
+        }
+
+        public static bool SaveMapCheckpoint(out string message)
+        {
+            return CampaignSaveService.TryAutosave(SaveCheckpointKind.Map, out message);
+        }
+
+        public static bool CompleteRewardAndReturnToMap(out string message)
+        {
+            message = null;
+            if (CurrentState != GameState.Reward)
+            {
+                message = "当前不在奖励结算状态";
+                return false;
+            }
+
+            if (RewardResolver.HasPendingRewards)
+            {
+                message = "仍有未完成的奖励选择";
+                return false;
+            }
+
+            CombatManager.End();
+            if (!GameFlow.TryTransition(GameState.Map, "奖励完成，返回地图"))
+            {
+                message = "状态机拒绝返回地图";
+                return false;
+            }
+
+            if (!CampaignSaveService.TryAutosave(SaveCheckpointKind.Map, out string saveMessage))
+            {
+                message = "已返回地图，但" + saveMessage;
+                return true;
+            }
+
+            message = saveMessage;
+            return true;
+        }
+
+        internal static bool CanCaptureCheckpoint(SaveCheckpointKind checkpoint, out string issue)
+        {
+            issue = null;
+            if (Random == null || CampaignDeck == null || !RegionMap.IsGenerated)
+            {
+                issue = "战役尚未初始化";
+                return false;
+            }
+
+            if (CombatManager.IsActive)
+            {
+                issue = "战斗尚未完全结束";
+                return false;
+            }
+
+            if (CurrentEvent != null || PendingEventChoice != EventOptionChoiceKind.None || _pendingEventCombatReward != null)
+            {
+                issue = "事件尚未完全结算";
+                return false;
+            }
+
+            if (RewardResolver.HasPendingRewards)
+            {
+                issue = "奖励尚未完成";
+                return false;
+            }
+
+            switch (checkpoint)
+            {
+                case SaveCheckpointKind.Map:
+                    if (CurrentState != GameState.Map) issue = "当前不在地图状态";
+                    break;
+                case SaveCheckpointKind.NodeEntry:
+                    if (CurrentState != GameState.Move || RegionMap.CurrentNodeIndex < 0)
+                        issue = "当前不在节点入口状态";
+                    break;
+                case SaveCheckpointKind.Camp:
+                    if (CurrentState != GameState.Camp || RegionMap.CurrentNodeIndex < 0
+                        || RegionMap.Nodes[RegionMap.CurrentNodeIndex].Type != NodeType.Camp)
+                        issue = "当前不在营地安全点";
+                    break;
+                default:
+                    issue = "检查点类型无效";
+                    break;
+            }
+
+            return issue == null;
+        }
+
+        internal static CampaignSaveData CaptureSaveData(SaveCheckpointKind checkpoint)
+        {
+            var upgradedCards = new List<string>(CampaignDeck.UpgradedCards);
+            upgradedCards.Sort(StringComparer.Ordinal);
+            var relicIds = new List<string>(Relics);
+            relicIds.Sort(StringComparer.Ordinal);
+            var buildingIds = new List<string>(BuiltBuildings);
+            buildingIds.Sort(StringComparer.Ordinal);
+            var eventFlags = new List<string>(EventFlags);
+            eventFlags.Sort(StringComparer.Ordinal);
+
+            return new CampaignSaveData
+            {
+                Checkpoint = (int)checkpoint,
+                SavedUtcTicks = DateTime.UtcNow.Ticks,
+                Seed = Seed,
+                Random = Random.CaptureState(),
+                ElapsedSeconds = (long)System.Math.Max(0f, UnityEngine.Time.realtimeSinceStartup - _sessionStartTime),
+                Resources = new CampaignResourceSaveData
+                {
+                    Food = Food,
+                    Wealth = Wealth,
+                    Reputation = Reputation,
+                    Materials = Materials,
+                    Risk = Risk,
+                    PlayerFatigue = PlayerFatigue,
+                    PlayerDisease = PlayerDisease,
+                    AmbushPending = AmbushPending
+                },
+                Deck = new CampaignDeckSaveData
+                {
+                    Cards = new List<string>(CampaignDeck.Cards),
+                    UpgradedCardIds = upgradedCards
+                },
+                Partners = PartnerRoster.CaptureSaveData(),
+                ActivePartnerIds = PartnerRoster.CaptureActivePartnerIds(),
+                RelicIds = relicIds,
+                BuildingIds = buildingIds,
+                EventFlags = eventFlags,
+                Flags = new CampaignFlagSaveData
+                {
+                    GrasslandBossDefeated = GrasslandBossDefeated,
+                    CampBonusUsedThisRegion = _campBonusUsedThisRegion,
+                    EventWealthBonusUsedThisRegion = _eventWealthBonusUsedThisRegion,
+                    FreeUpgradePending = _freeUpgradePending,
+                    RelicCampFoodUsedThisRegion = _relicCampFoodUsedThisRegion,
+                    RelicClinicUsedThisRegion = _relicClinicUsedThisRegion,
+                    RelicEventWealthUsedThisRegion = _relicEventWealthUsedThisRegion
+                },
+                Map = RegionMap.CaptureSaveData(),
+                RunRecords = RunRecord.CaptureSaveData()
+            };
+        }
+
+        internal static bool TryRestoreFromSaveData(CampaignSaveData data, out string issue)
+        {
+            if (!CampaignSaveValidator.Validate(data, out issue)) return false;
+            if (!GameRandom.TryCreate(data.Random, out GameRandom restoredRandom, out issue)) return false;
+
+            ClearForLoad();
+            Seed = data.Seed;
+            Random = restoredRandom;
+            Food = data.Resources.Food;
+            Wealth = data.Resources.Wealth;
+            Reputation = data.Resources.Reputation;
+            Materials = data.Resources.Materials;
+            Risk = data.Resources.Risk;
+            PlayerFatigue = data.Resources.PlayerFatigue;
+            PlayerDisease = data.Resources.PlayerDisease;
+            AmbushPending = data.Resources.AmbushPending;
+
+            CampaignDeck = new CampaignDeck(data.Deck.Cards);
+            foreach (string id in data.Deck.UpgradedCardIds) CampaignDeck.UpgradedCards.Add(id);
+            PartnerRoster.RestoreSaveData(data.Partners, data.ActivePartnerIds);
+            Relics.AddRange(data.RelicIds);
+            BuiltBuildings.AddRange(data.BuildingIds);
+            EventFlags.AddRange(data.EventFlags);
+
+            GrasslandBossDefeated = data.Flags.GrasslandBossDefeated;
+            _campBonusUsedThisRegion = data.Flags.CampBonusUsedThisRegion;
+            _eventWealthBonusUsedThisRegion = data.Flags.EventWealthBonusUsedThisRegion;
+            _freeUpgradePending = data.Flags.FreeUpgradePending;
+            _relicCampFoodUsedThisRegion = data.Flags.RelicCampFoodUsedThisRegion;
+            _relicClinicUsedThisRegion = data.Flags.RelicClinicUsedThisRegion;
+            _relicEventWealthUsedThisRegion = data.Flags.RelicEventWealthUsedThisRegion;
+
+            RegionMap.RestoreSaveData(data.Map);
+            RunRecord.RestoreSaveData(data.RunRecords);
+            _sessionStartTime = UnityEngine.Time.realtimeSinceStartup - data.ElapsedSeconds;
+
+            GameState restoredState = (SaveCheckpointKind)data.Checkpoint == SaveCheckpointKind.Map
+                ? GameState.Map
+                : ((SaveCheckpointKind)data.Checkpoint == SaveCheckpointKind.Camp ? GameState.Camp : GameState.Move);
+            if (!GameFlow.RestoreSafeState(restoredState, "继续游戏：恢复安全检查点"))
+            {
+                issue = "无法恢复流程状态";
+                ClearForLoad();
+                return false;
+            }
+
+            Changed?.Invoke();
+            return true;
+        }
+
+        private static void ClearForLoad()
+        {
+            Seed = 0;
+            Random = null;
+            CombatManager.End();
+            GameFlow.Reset();
+            RunRecord.Clear();
+            RecordsList.Clear();
+            PartnerRoster.Clear();
+            RewardResolver.Clear();
+            RegionMap.Clear();
+            CampaignDeck = null;
+            Food = 0;
+            Wealth = 0;
+            Reputation = 0;
+            Materials = 0;
+            Risk = 0;
+            PlayerFatigue = 0;
+            PlayerDisease = 0;
+            AmbushPending = false;
+            CurrentEvent = null;
+            PendingEventChoice = EventOptionChoiceKind.None;
+            PendingEventOptionIndex = -1;
+            _pendingEventCombatReward = null;
+            LastCombatRewardText = null;
+            Relics.Clear();
+            BuiltBuildings.Clear();
+            EventFlags.Clear();
+            GrasslandBossDefeated = false;
+            _campBonusUsedThisRegion = false;
+            _eventWealthBonusUsedThisRegion = false;
+            _freeUpgradePending = false;
+            _relicCampFoodUsedThisRegion = false;
+            _relicClinicUsedThisRegion = false;
+            _relicEventWealthUsedThisRegion = false;
+            LastCampResult = null;
+            LastSettlement = null;
+            _testEventIndex = 0;
+            _testEncounterIndex = 0;
+            _sessionStartTime = UnityEngine.Time.realtimeSinceStartup;
         }
 
         // ---- 测试辅助（仅 EditMode 测试使用）----

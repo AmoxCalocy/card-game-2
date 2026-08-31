@@ -81,6 +81,30 @@ namespace OneJourney.Core
             }
         }
 
+        internal static List<RunRecordSaveData> CaptureSaveData()
+        {
+            var result = new List<RunRecordSaveData>(EntriesList.Count);
+            foreach (var entry in EntriesList)
+            {
+                result.Add(new RunRecordSaveData
+                {
+                    Category = (int)entry.Category,
+                    Detail = entry.Detail
+                });
+            }
+
+            return result;
+        }
+
+        internal static void RestoreSaveData(List<RunRecordSaveData> records)
+        {
+            EntriesList.Clear();
+            foreach (var saved in records)
+            {
+                EntriesList.Add(new RunRecordEntry(EntriesList.Count, (RecordCategory)saved.Category, saved.Detail));
+            }
+        }
+
         public static void Clear()
         {
             EntriesList.Clear();

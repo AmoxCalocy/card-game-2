@@ -25,6 +25,8 @@ namespace OneJourney.Core
 
         [Header("按钮绑定")]
         [SerializeField] private Button _startNewGameButton;
+        [SerializeField] private Button _continueButton;
+        [SerializeField] private Text _saveStatusText;
         [SerializeField] private InputField _seedInput;
         [SerializeField] private Button _startWithSeedButton;
         [SerializeField] private Button[] _testEntryButtons;
@@ -76,6 +78,7 @@ namespace OneJourney.Core
             RunSession.Changed += Refresh;
             GameConfigProvider.Changed += RefreshConfigUi;
             GameFlow.Changed += Refresh;
+            CampaignSaveService.Changed += RefreshSaveUi;
 
             ShowMenu();
             RefreshConfigUi();
@@ -86,6 +89,7 @@ namespace OneJourney.Core
             RunSession.Changed -= Refresh;
             GameConfigProvider.Changed -= RefreshConfigUi;
             GameFlow.Changed -= Refresh;
+            CampaignSaveService.Changed -= RefreshSaveUi;
         }
 
         private IEnumerator Start()
@@ -115,6 +119,7 @@ namespace OneJourney.Core
             }
 
             _startNewGameButton.onClick.AddListener(OnStartNewGame);
+            if (_continueButton != null) _continueButton.onClick.AddListener(OnContinueGame);
             _quitButton.onClick.AddListener(OnQuit);
             _recordResolutionButton.onClick.AddListener(OnRecordSampleResolution);
             _returnToMenuButton.onClick.AddListener(OnReturnToMenu);
@@ -245,7 +250,14 @@ namespace OneJourney.Core
         {
             _menuPanel.SetActive(true);
             _pagePanel.SetActive(false);
+            RefreshSaveUi();
             Refresh();
+        }
+
+        private void RefreshSaveUi()
+        {
+            if (_continueButton != null) _continueButton.interactable = CampaignSaveService.HasValidSave;
+            if (_saveStatusText != null) _saveStatusText.text = CampaignSaveService.StatusMessage;
         }
 
         private void ShowPage(string title, string description)
@@ -326,6 +338,32 @@ namespace OneJourney.Core
         {
             RunSession.StartNewGame();
             ShowPage("地图（新游戏入口）", BuildMapDescription());
+        }
+
+        private void OnContinueGame()
+        {
+            if (!RunSession.TryContinue(out string message))
+            {
+                RefreshSaveUi();
+                return;
+            }
+
+            switch (RunSession.CurrentState)
+            {
+                case GameState.Combat:
+                    ShowPage("战斗（继续游戏）", BuildCombatDescription());
+                    break;
+                case GameState.Event:
+                    ShowEventPage();
+                    break;
+                case GameState.Camp:
+                    _campMode = CampPageMode.None;
+                    ShowCampPage(message);
+                    break;
+                default:
+                    ShowPage("地图（继续游戏）", BuildMapDescription() + "\n" + message);
+                    break;
+            }
         }
 
         private void OnStartWithSeed()
@@ -632,7 +670,16 @@ namespace OneJourney.Core
         /// <summary>返回地图页（A2-23：奖励结算/区域切换后继续地图）。</summary>
         public void ReturnToMap()
         {
-            GameFlow.TryTransition(GameState.Map, "返回地图");
+            if (RunSession.CurrentState == GameState.Reward)
+            {
+                RunSession.CompleteRewardAndReturnToMap(out _);
+            }
+            else
+            {
+                CombatManager.End();
+                if (GameFlow.TryTransition(GameState.Map, "返回地图"))
+                    RunSession.SaveMapCheckpoint(out _);
+            }
             ShowPage("地图", BuildMapDescription());
         }
 
@@ -1138,7 +1185,8 @@ namespace OneJourney.Core
         {
             if (RegionMap.IsGenerated)
             {
-                GameFlow.TryTransition(GameState.Map, "离开营地，返回地图");
+                if (GameFlow.TryTransition(GameState.Map, "离开营地，返回地图"))
+                    RunSession.SaveMapCheckpoint(out _);
                 ShowPage("地图", BuildMapDescription());
             }
             else

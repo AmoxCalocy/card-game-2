@@ -10,6 +10,7 @@ namespace OneJourney.Core
             GameConfigProvider.Initialize();
             ContentRegistry.LoadAll();
             RunSession.Reset();
+            CampaignSaveService.Initialize();
         }
     }
 }

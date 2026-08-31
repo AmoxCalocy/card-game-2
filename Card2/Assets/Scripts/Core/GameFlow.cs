@@ -84,6 +84,21 @@ namespace OneJourney.Core
             _sequence = 0;
         }
 
+        internal static bool RestoreSafeState(GameState state, string reason)
+        {
+            if (state != GameState.Map && state != GameState.Move && state != GameState.Camp)
+            {
+                return false;
+            }
+
+            CurrentState = state;
+            LogList.Clear();
+            _sequence = 0;
+            LogList.Add(new StateTransitionLog(++_sequence, GameState.MainMenu, state, reason));
+            Changed?.Invoke();
+            return true;
+        }
+
         private static bool IsAllowed(GameState from, GameState to)
         {
             switch (from)

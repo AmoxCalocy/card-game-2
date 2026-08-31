@@ -7,6 +7,29 @@ namespace OneJourney.Tests.EditMode
     public class GameRandomTests
     {
         [Test]
+        public void StateRoundTrip_ContinuesSequence()
+        {
+            var original = new GameRandom(20260831);
+            for (int i = 0; i < 37; i++) original.Next();
+            GameRandomState state = original.CaptureState();
+            var expected = new int[20];
+            for (int i = 0; i < expected.Length; i++) expected[i] = original.Next(1000000);
+
+            Assert.IsTrue(GameRandom.TryCreate(state, out GameRandom restored, out string issue), issue);
+            for (int i = 0; i < expected.Length; i++)
+                Assert.AreEqual(expected[i], restored.Next(1000000), "恢复后第 " + i + " 次取值不一致");
+        }
+
+        [Test]
+        public void Sequence_MatchesSystemRandomCompatibility()
+        {
+            var actual = new GameRandom(123456789);
+            var expected = new System.Random(123456789);
+            for (int i = 0; i < 100; i++)
+                Assert.AreEqual(expected.Next(), actual.Next(), "第 " + i + " 次 System.Random 兼容序列不一致");
+        }
+
+        [Test]
         public void SameSeed_ProducesIdenticalSequence()
         {
             var a = new GameRandom(42);

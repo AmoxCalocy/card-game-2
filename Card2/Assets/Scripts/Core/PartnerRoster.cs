@@ -162,6 +162,48 @@ namespace OneJourney.Core
             }
         }
 
+        internal static List<PartnerSaveData> CaptureSaveData()
+        {
+            var result = new List<PartnerSaveData>(All.Count);
+            foreach (var partner in All)
+            {
+                result.Add(new PartnerSaveData
+                {
+                    Id = partner.Def.Id,
+                    CurrentHp = partner.CurrentHp,
+                    IsRecruited = partner.IsRecruited,
+                    Loyalty = partner.Loyalty,
+                    Disease = partner.Disease,
+                    Fatigue = partner.Fatigue
+                });
+            }
+
+            return result;
+        }
+
+        internal static List<string> CaptureActivePartnerIds()
+        {
+            var result = new List<string>(_activeTeam.Count);
+            foreach (var partner in _activeTeam) result.Add(partner.Def.Id);
+            return result;
+        }
+
+        internal static void RestoreSaveData(List<PartnerSaveData> partners, List<string> activePartnerIds)
+        {
+            Clear();
+            foreach (var saved in partners)
+            {
+                var partner = Find(saved.Id);
+                partner.CurrentHp = saved.CurrentHp;
+                partner.IsRecruited = saved.IsRecruited;
+                partner.Loyalty = saved.Loyalty;
+                partner.Disease = saved.Disease;
+                partner.Fatigue = saved.Fatigue;
+            }
+
+            SetActiveTeam(activePartnerIds);
+        }
+
         public static void Clear()
         {
             _activeTeam.Clear();

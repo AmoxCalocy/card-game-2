@@ -210,6 +210,59 @@ namespace OneJourney.Core
             return result;
         }
 
+        internal static RegionMapSaveData CaptureSaveData()
+        {
+            var data = new RegionMapSaveData
+            {
+                Region = (int)Region,
+                CurrentNodeIndex = CurrentNodeIndex,
+                VisitedIndexes = new List<int>(_visited),
+                Path = new List<int>(_path),
+                Nodes = new List<RegionMapNodeSaveData>(_nodes.Count)
+            };
+
+            foreach (var node in _nodes)
+            {
+                data.Nodes.Add(new RegionMapNodeSaveData
+                {
+                    Id = node.Id,
+                    Layer = node.Layer,
+                    Type = (int)node.Type,
+                    DisplayName = node.DisplayName,
+                    EnemyPoolIds = node.EnemyPoolIds != null ? (string[])node.EnemyPoolIds.Clone() : new string[0],
+                    EventPoolIds = node.EventPoolIds != null ? (string[])node.EventPoolIds.Clone() : new string[0],
+                    NextIndexes = new List<int>(node.NextIndexes)
+                });
+            }
+
+            return data;
+        }
+
+        internal static void RestoreSaveData(RegionMapSaveData data)
+        {
+            Clear();
+            Region = (ContentRegion)data.Region;
+            foreach (var saved in data.Nodes)
+            {
+                var node = new RegionMapNode
+                {
+                    Id = saved.Id,
+                    Layer = saved.Layer,
+                    Type = (NodeType)saved.Type,
+                    DisplayName = saved.DisplayName,
+                    EnemyPoolIds = (string[])saved.EnemyPoolIds.Clone(),
+                    EventPoolIds = (string[])saved.EventPoolIds.Clone()
+                };
+                node.NextIndexes.AddRange(saved.NextIndexes);
+                _nodes.Add(node);
+            }
+
+            _visited.AddRange(data.VisitedIndexes);
+            _path.AddRange(data.Path);
+            CurrentNodeIndex = data.CurrentNodeIndex;
+            IsGenerated = true;
+        }
+
         public static void Clear()
         {
             _nodes.Clear();

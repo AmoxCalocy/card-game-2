@@ -301,5 +301,19 @@ aiEditMode: inherit
 - 说明：正式战役胜利（击败边境首领）留待完整功能阶段；同种子重开走 StartNewGame（清空战役进度）。
 - 验证：Test Runner 全绿（333 用例，含新增 5）；Play 完整链路：新游戏→草原首领胜利→切密林→密林首领胜利→奖励页→结算页（摘要+真实按钮）→返回主菜单/同种子重开 ✓；模拟失败→结算页 ✓；真实主角死亡→结算页 ✓。
 
+## 2026-08-31 · A3-25 实现安全存档与继续游戏（用户已验证）
+- 完成：
+  - `CampaignSaveData.cs`（新）— 版本 1 战役存档 DTO：安全检查点（Map/NodeEntry/Camp）、随机状态、累计用时、资源/风险、牌组与升级、8 名伙伴状态与上阵顺序、遗物/建筑/事件标记、区域级一次性标记、完整地图拓扑/路径及本局记录。
+  - `CampaignSaveService.cs`（新）— 本地 `Application.persistentDataPath` JSON 存档；外层版本号 + SHA-256 完整性哈希；临时文件写入后替换主档并保留备份；主档损坏时回退备份并恢复主档；损坏/缺字段/旧版本均明确拒绝；结算后删除活动存档；测试可注入隔离目录。
+  - `GameRandom.cs` — 从不可读取状态的 `System.Random` 包装改为兼容经典序列的显式状态实现；新增 `GameRandomState`、`CaptureState`/`TryCreate`，读档后继续原随机序列而非仅按种子重置。
+  - `RunSession.cs` — 新增 `EventFlags`、完整存档捕获/事务恢复、`TryContinue`、节点入口恢复、`CompleteRewardAndReturnToMap` 与安全点校验；新游戏/地图节点、事件完成、营地进入与操作、奖励完成后自动存档；战斗/事件选择/奖励选择中不覆盖检查点，继续时从节点内容开头重启；结算时清理战斗并删除存档。
+  - `RegionMap.cs` / `PartnerRoster.cs` / `RunRecord.cs` — 分别新增地图拓扑与路径、伙伴全状态与上阵顺序、本局记录的快照/恢复；`GameFlow.cs` 新增仅允许 Map/Move/Camp 的受限安全状态恢复。
+  - `GameBootstrap.cs` — 启动初始化存档状态；`GameUi.cs` — 绑定继续游戏、存档状态提示及按恢复状态分流页面；奖励完成返回地图前先彻底结束战斗并保存。
+  - `Assets/Scenes/SampleScene.unity` — 主菜单新增「继续游戏」按钮与存档状态文字，`GameUi._continueButton` / `_saveStatusText` 引用已连接。
+  - `CampaignSaveTests.cs`（新）— 13 个 EditMode 用例：完整状态与随机序列往返、事件/战斗/营地节点入口恢复、事件/营地/奖励安全点自动存档、战斗中拒绝覆盖、主档损坏回退备份、双档损坏/缺字段/旧版本拒绝、结算删除存档。
+  - `GameRandomTests.cs` — +2 用例：随机内部状态往返、与经典 `System.Random` 序列兼容。
+- 安全语义：磁盘始终只保留完整战斗外状态；进入节点后先保存 NodeEntry，若在战斗、事件或奖励中退出，则继续游戏会用保存时 RNG 从该节点内容开头重启；营地入口结算后升级为 Camp 检查点，避免重复触发区域首次效果。
+- 验证：Unity 与生成项目程序集编译 0 错误（仅既有 `PlayTestCard` 过时警告）；用户确认 Test Runner 与功能验证通过。
+
 ## 进行中
-- 下一步：A3-25 实现安全存档与继续游戏（等待用户指示开始）。
+- 下一步：A3-26 完成基础引导与规则说明（等待用户明确指示开始）。
