@@ -315,5 +315,20 @@ aiEditMode: inherit
 - 安全语义：磁盘始终只保留完整战斗外状态；进入节点后先保存 NodeEntry，若在战斗、事件或奖励中退出，则继续游戏会用保存时 RNG 从该节点内容开头重启；营地入口结算后升级为 Camp 检查点，避免重复触发区域首次效果。
 - 验证：Unity 与生成项目程序集编译 0 错误（仅既有 `PlayTestCard` 过时警告）；用户确认 Test Runner 与功能验证通过。
 
+## 2026-09-01 · 界面优化：营地与事件页 Prefab 化（用户已验证）
+- 营地页：
+  - `Assets/Prefabs/CampOptions.prefab`（新）— 营地面板从场景对象转换为 Prefab 实例，采用左侧队伍状态/目标选择、右侧设施与建筑入口的双栏滚动布局；结算按钮区拆为场景独立 `SettlementActions`，不再与营地内容共用层级。
+  - `CampTeamCard.prefab` + `CampTeamCardView.cs`（新）— 可复用伙伴卡：头像占位、名称、上阵/后备/阵亡、HP/忠诚、疲劳/疾病及最多两个操作按钮；主角和全部已招募伙伴均由同一 Prefab 填充。
+  - `CampFacilityCard.prefab` + `CampFacilityCardView.cs`（新）— 可复用设施卡：图标占位、名称、成本/条件/效果、锁定/已建/可服务状态及点击入口；篝火、牌组、B01-B05、R04 与离开营地均复用该 Prefab。
+  - 营地与独立结算范围的文字全部改为 `TextMeshProUGUI`，统一使用 `Assets/Fonts/SIMHEI SDF.asset`，消除中文缺字；`GameUi.cs` 从纯代码搭层级改为实例化两个卡片 View。
+- 事件页：
+  - `Assets/Prefabs/EventPage.prefab` + `EventPageView.cs`（新）— 杀戮尖塔式整体框架：左侧事件插画占位，中间标题/叙事/资源/当前提示，右侧可滚动选项列表；场景旧 `EventOptions` 被该 Prefab 实例替代。
+  - `Assets/Prefabs/EventOptionCard.prefab` + `EventOptionCardView.cs`（新）— Across the Obelisk 式角色/条件选项卡：角色或类型徽标、选项名、条件/成本、预期结果、锁定原因；支持普通选项、事件战斗、伙伴条件以及移除卡/升级卡/状态治疗子选择。
+  - `GameUi.cs` — 保留 E01-E20、上一事件/下一事件、地图事件、事件战斗和全部子选择业务逻辑；事件状态下隐藏旧标题/描述/战斗按钮区，事件结束后恢复原页面布局。
+- 修复：
+  - `RunSession.EventOptionBlockReason` 新增状态目标校验：E10 无疲劳目标时禁用「休整」；E14 全队无疲劳/疾病时禁用「配药」并显示明确原因，不再进入空子选择导致卡死，仍可选择「采药出售」完成事件。
+  - `EventTests.cs` +2 回归用例：E10 无疲劳目标拒绝、E14 无可治疗目标拒绝且可改选出售；事件测试共 59 个。
+- 验证：核心程序集编译 0 错误；Play 冒烟覆盖营地伙伴/设施 Prefab、休整/建造、事件 E01/E03/E07/E14、锁定提示与子选择；完整 `EventTests` 59/59 通过；用户确认布局、交互和修复均通过。
+
 ## 进行中
 - 下一步：A3-26 完成基础引导与规则说明（等待用户明确指示开始）。

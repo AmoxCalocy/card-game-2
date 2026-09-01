@@ -4,7 +4,7 @@ injectMode: inherit
 aiEditMode: inherit
 ---
 
-# 架构与文件职责（截至 2026-08-31）
+# 架构与文件职责（截至 2026-09-01）
 
 ## 目录与程序集
 - `Assets/Scripts/Core/` — 核心运行时逻辑（程序集 OneJourney.Core，无外部引用）。
@@ -12,7 +12,7 @@ aiEditMode: inherit
 
 ## 运行时入口与场景
 - `GameBootstrap.cs` — `[RuntimeInitializeOnLoadMethod(BeforeSceneLoad)]`：依次初始化 `GameConfigProvider`、`ContentRegistry.LoadAll()`、`RunSession.Reset()` 与 `CampaignSaveService.Initialize()`。**不创建 UI**——UI 由场景承载（MVP 单场景，UI 不跨场景存活）。
-- `Assets/Scenes/SampleScene.unity` — 唯一主场景：Main Camera + GameUi 层级（GameUi / Canvas / TestHud / MainMenu / TestPage / EventSystem）；MainMenu 内含场景化「新游戏 / 继续游戏 / 存档状态」控件，引用由 `GameUi` 序列化持有。
+- `Assets/Scenes/SampleScene.unity` — 唯一主场景：Main Camera + GameUi 层级（GameUi / Canvas / TestHud / MainMenu / TestPage / EventSystem）；MainMenu 内含场景化「新游戏 / 继续游戏 / 存档状态」控件；Canvas 下的 `CampOptions` 是 Prefab 实例、`SettlementActions` 为独立结算按钮区；TestPage 内的 `EventPage` 是 Prefab 实例。引用均由 `GameUi` 序列化持有。
 
 ## 配置系统
 - `GameMode.cs` — 枚举 Development / Testing / Release。
@@ -89,18 +89,29 @@ aiEditMode: inherit
 
 ## 事件系统（A2-19）
 - `EventCatalog.cs` — 20 个事件静态目录（配置表 §6，与 CardCatalog/EnemyUnit 同模式：代码内硬编码，可复现）：`EventDef`（Id/DisplayName/Description/Region/Category/Options）、`EventOptionDef`（条件/支付/即时结果/招募/获得卡与遗物/移除卡/升级/状态移除/事件战斗与胜利额外奖励）、`EventOptionCondition`（PayResource/HasPartner*/ReputationAtLeast/HasRemoveableCard 等 8 种）、`EventStatusChoice`（FatigueSingle/DiseaseAll/DiseaseOrFatigueSingle）；`Find(id)`。
-- 事件结算（RunSession 内）：`StartEventFromNode`（地图事件节点按种子抽取）/`StartEvent`（测试与节点进入，Event 状态幂等）/`EventOptionBlockReason`（条件校验返回禁用原因，供 UI 置灰）/`ChooseEventOption`（支付→战斗或子选择或即时结算）/`ChooseEventCard`（移除/升级子选择）/`ChooseEventStatusUnit`（单位状态移除）/`CancelEventChoice`/`ApplyPendingEventCombatRewards`（胜利额外奖励仅结算一次，由 CombatManager 胜利分支调用）/`ClearPendingEventCombatRewards`（失败清除，防残留）；`Relics` 遗物持有记录；`EventFlags` 记录已完成事件 ID；事件完整结束回 Map 后触发安全存档，事件选择或事件战斗中不写盘；`PlayerDisease` 为主角战役疾病。
+- 事件结算（RunSession 内）：`StartEventFromNode`（地图事件节点按种子抽取）/`StartEvent`（测试与节点进入，Event 状态幂等）/`EventOptionBlockReason`（资源/伙伴/卡牌/声望及状态目标校验，返回禁用原因）/`ChooseEventOption`（支付→战斗或子选择或即时结算）/`ChooseEventCard`（移除/升级子选择）/`ChooseEventStatusUnit`（单位状态移除）/`CancelEventChoice`/`ApplyPendingEventCombatRewards`（胜利额外奖励仅结算一次，由 CombatManager 胜利分支调用）/`ClearPendingEventCombatRewards`（失败清除，防残留）；`Relics` 遗物持有记录；`EventFlags` 记录已完成事件 ID；事件完整结束回 Map 后触发安全存档，事件选择或事件战斗中不写盘；`PlayerDisease` 为主角战役疾病。状态目标规则：E10 需至少一名存活单位有疲劳，E14 需至少一名存活单位有疲劳或疾病，否则选项置灰且不得进入待选状态。
 - 资源钳制：事件与移动结算统一用 `Clamp` 保证粮 0-30/财 0-999/声望 0-100/建材 0-99/风险 0-10 不为负；招募伙伴已招募→忠诚 +10、阵亡→选项禁用（配置表 §6 通用规则）。
-- `EventTests.cs` — 57 个 EditMode 用例：目录完整性/每选项结算/条件不满足/事件战斗胜利与失败/子选择/忠诚规则/钳制。
+- `EventTests.cs` — 59 个 EditMode 用例：目录完整性/每选项结算/条件不满足/事件战斗胜利与失败/卡牌与状态子选择/忠诚规则/资源钳制；含 E10/E14 无合法状态目标时拒绝且不进入空子选择的回归覆盖。
 
 ## UI 结构（场景组件化 + Prefab 驱动）
-- `GameUi.cs` — 场景 UI 驱动：`[SerializeField]` 持有面板/HUD/标题/描述/按钮/`_battleView`/`_mapNodeContainer`/`_eventOptionContainer`/`_campOptionContainer`；A3-25 新增 `_continueButton`/`_saveStatusText`、`OnContinueGame` 与 `RefreshSaveUi`，按恢复结果显示 Map/Event/Camp/Combat；`ReturnToMap` 在奖励完成时委托 `RunSession.CompleteRewardAndReturnToMap`，确保战斗清理与存档顺序；其余职责包括页面显隐、地图节点、事件选项、营地服务、结算页及测试入口的 UI 编排。
+- `GameUi.cs` — 场景 UI 总协调器：持有主菜单、HUD、测试页、地图容器、`BattleView`、营地 Prefab/卡片 Prefab 与 `EventPageView` 引用；负责页面显隐、测试入口、地图节点、战斗/奖励/结算分流以及把领域数据填入各 View。营地和事件的视觉层级已下沉到 Prefab/View，`GameUi` 不再逐组件动态搭建卡片；A3-25 的继续游戏按恢复结果显示 Map/Event/Camp/Combat。
 - `BattleView.cs` — 战斗界面独立控制器（A1-14）：从 `_battlePagePrefab` 运行时实例化 BattlePage；管理手牌/单位卡片生命周期；处理出牌/选目标/结束回合/返回菜单交互；A2-20：`ShowRewardPage`（独立奖励页：标题/资源明细/卡牌/跳过/继续，胜利后自动弹出，`_combatWon` 标记支撑模拟胜利路径）；A2-21：顶部测试按钮（◀ 上一组/下一组 ▶ 翻页重开、模拟胜利/失败）；A2-22：奖励页金色遗物条目（`_relicRewardPrefab` 实例化，名称/效果填充、点击领取）；A2-24：`OnSimulateDefeat` 对齐完整结算流程（ForceDefeat→End→Defeat→结算页）、`RefreshPostCombat` 真实主角死亡自动进结算页、`OnRewardContinue` 分流（Victory→结算 / Reward+地图→ReturnToMap / Reward 无地图→ReturnToMenu）。子组件通过 `ResolveRefs()` 自动解析。
 - HUD（TestHud，尺寸 680×300）：7 行文本——随机种子 / 当前状态 / 当前配置 / 最近一次规则结算 / 最近状态切换（最近 3 条）/ 内容校验状态（OK 或 N 个问题+首个）/ 本局记录（N 条+最新类别 #序号）。
 - Canvas：ScreenSpaceOverlay + CanvasScaler（1920×1080，match 0.5）。**子对象顺序即渲染顺序**：MainMenu → BattlePage(运行时) → TestPage → TestHud（HUD 在顶层）。
 - MainMenu：ScrollRect + Viewport(RectMask2D) + Content(VerticalLayoutGroup)，场景内固定「新游戏 / 继续游戏 / 存档状态 / 测试入口 / 运行配置 / 退出」，增删按钮自动重排。
-- TestPage：旧版战斗测试页（A1-14 后战斗中隐藏，BattleView 替代）。
+- TestPage：旧版通用页面容器；战斗中隐藏并由 `BattleView` 替代，事件状态下隐藏旧 Title/Description/CombatActions 并显示 `EventPage` Prefab，同时保留 BottomRow 的上一事件/下一事件测试按钮；事件结束后恢复旧布局。
 - EventSystem：EventSystem + StandaloneInputModule（Legacy Input）。
+
+## 营地界面 Prefab（2026-09-01 优化）
+- `Assets/Prefabs/CampOptions.prefab` — 左队伍、右设施的双栏营地面板，两个区域均可滚动；只包含营地内容，结算按钮由场景独立 `SettlementActions` 承载。
+- `Assets/Prefabs/CampTeamCard.prefab` / `CampTeamCardView.cs` — 伙伴卡模板与绑定组件：头像占位、姓名、编队位置/定位、HP/忠诚、疲劳/疾病、主/次操作按钮；同一模板渲染主角与所有已招募伙伴。
+- `Assets/Prefabs/CampFacilityCard.prefab` / `CampFacilityCardView.cs` — 设施卡模板与绑定组件：图标占位、名称、成本/条件/效果、禁用状态与点击入口；篝火、牌组、建筑、遗物服务和离开入口共用。
+- 营地及独立结算动态文字统一为 `TextMeshProUGUI`，字体固定为 `Assets/Fonts/SIMHEI SDF.asset`；后期美术只需替换 Prefab 的 Portrait/Icon/背景，无需修改业务逻辑。
+
+## 事件界面 Prefab（2026-09-01 优化）
+- `Assets/Prefabs/EventPage.prefab` / `EventPageView.cs` — 三栏事件页面：左侧插画占位和区域/类别/ID，中间标题、叙事、资源和流程提示，右侧滚动选项列表；按事件类别切换占位色，后期可直接替换 Artwork。
+- `Assets/Prefabs/EventOptionCard.prefab` / `EventOptionCardView.cs` — 可复用选项卡：角色/类型徽标、选项名称、条件或成本、预期结果、锁定原因和交互状态；普通选项、伙伴条件、事件战斗、卡牌子选择和状态治疗均使用同一模板。
+- `EventPageView` 只负责展示和实例化选项卡；条件判定与结算仍归 `RunSession`，`GameUi` 负责把按钮回调连接到 `ChooseEventOption`/`ChooseEventCard`/`ChooseEventStatusUnit`。
 
 ## 战斗界面 Prefab（A1-14 / A2-20 / A2-21）
 - `Assets/Prefabs/BattlePage.prefab` — 五区块布局（全部 TMP）：TopBar（TurnInfo/Energy/Morale/Plunder/EndTurnBtn + 测试按钮：◀ 上一组/下一组 ▶/模拟胜利/模拟失败）/ MainArea（TeamPanel/EnemyPanel/RightPanel+ReturnBtn）/ BottomBar（DrawPile/HandCards/DiscardPile）。

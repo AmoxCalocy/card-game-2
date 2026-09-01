@@ -465,6 +465,19 @@ namespace OneJourney.Tests.EditMode
         }
 
         [Test]
+        public void E10_Rest_NoFatigueTarget_BlockedWithoutPendingChoice()
+        {
+            Enter("E10");
+
+            string result = Choose(0);
+
+            StringAssert.Contains("不可用", result);
+            StringAssert.Contains("疲劳", result);
+            Assert.AreEqual(EventOptionChoiceKind.None, RunSession.PendingEventChoice);
+            Assert.AreEqual("E10", RunSession.CurrentEvent.Id, "阻止后仍可选择采集");
+        }
+
+        [Test]
         public void E10_Collect_Food5Risk1()
         {
             Enter("E10");
@@ -584,6 +597,24 @@ namespace OneJourney.Tests.EditMode
             RunSession.ChooseEventStatusUnit("PLAYER", true);
 
             Assert.AreEqual(0, RunSession.PlayerDisease, "主角疾病应 -1");
+        }
+
+        [Test]
+        public void E14_PrepareMedicine_NoAffectedUnit_BlockedAndCanChooseSell()
+        {
+            Enter("E14");
+            int wealthBefore = RunSession.Wealth;
+
+            string blocked = Choose(0);
+
+            StringAssert.Contains("不可用", blocked);
+            StringAssert.Contains("没有可治疗", blocked);
+            Assert.AreEqual(EventOptionChoiceKind.None, RunSession.PendingEventChoice);
+            Assert.AreEqual("E14", RunSession.CurrentEvent.Id, "阻止后事件保持可操作");
+
+            Choose(1);
+            Assert.AreEqual(wealthBefore + 12, RunSession.Wealth, "仍可选择采药出售并完成事件");
+            Assert.IsNull(RunSession.CurrentEvent);
         }
 
         [Test]

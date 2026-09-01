@@ -73,8 +73,9 @@ namespace OneJourney.Core
         private enum CampPageMode { None, Rest, ClinicCamp, ClinicTown, ClinicRelic, FreeUpgrade, DeckView }
         private CampPageMode _campMode;
 
-        [Header("事件选项（A2-19）")]
-        [SerializeField] private Transform _eventOptionContainer;
+        [Header("事件页面（A2-19 / 布局优化）")]
+        [SerializeField] private EventPageView _eventPageView;
+        private string _eventFeedback;
 
         [Header("战斗界面（A1-14）")]
         [SerializeField] private BattleView _battleView;
@@ -260,6 +261,7 @@ namespace OneJourney.Core
             _pagePanel.SetActive(false);
             if (_campOptionContainer != null) _campOptionContainer.gameObject.SetActive(false);
             if (_settlementOptionContainer != null) _settlementOptionContainer.gameObject.SetActive(false);
+            if (_eventPageView != null) _eventPageView.gameObject.SetActive(false);
             RefreshSaveUi();
             Refresh();
         }
@@ -320,15 +322,18 @@ namespace OneJourney.Core
             RefreshHandCards();
             // A2-21：营地页只显示营地内容，隐藏其他动态容器与测试按钮区块
             bool isCamp = RunSession.CurrentState == GameState.Camp;
+            bool isEvent = RunSession.CurrentState == GameState.Event && RunSession.CurrentEvent != null;
             // A2-24：结算页只显示结算操作（返回主菜单 / 同种子重开）
             bool isSettlement = RunSession.CurrentState == GameState.Settlement;
+            _pageTitleText.gameObject.SetActive(!isEvent);
+            _pageDescriptionText.gameObject.SetActive(!isEvent);
+            if (_eventPageView != null) _eventPageView.gameObject.SetActive(isEvent);
             // 手牌容器仅在营地页强制隐藏；非营地页由 RefreshHandCards 决定（仅战斗状态显示）
-            if (_handCardContainer != null && isCamp) _handCardContainer.gameObject.SetActive(false);
-            if (_mapNodeContainer != null) _mapNodeContainer.gameObject.SetActive(!isCamp);
-            if (_eventOptionContainer != null) _eventOptionContainer.gameObject.SetActive(!isCamp);
+            if (_handCardContainer != null && (isCamp || isEvent)) _handCardContainer.gameObject.SetActive(false);
+            if (_mapNodeContainer != null) _mapNodeContainer.gameObject.SetActive(!isCamp && !isEvent);
             var pagePanel = _pagePanel != null ? _pagePanel.transform : transform;
             var combatActions = pagePanel.Find("CombatActions");
-            if (combatActions != null) combatActions.gameObject.SetActive(!isCamp);
+            if (combatActions != null) combatActions.gameObject.SetActive(!isCamp && !isEvent);
             var bottomRow = pagePanel.Find("BottomRow");
             if (bottomRow != null) bottomRow.gameObject.SetActive(!isCamp && !isSettlement);
             ResolveCampLayoutRefs();
@@ -337,7 +342,7 @@ namespace OneJourney.Core
             if (_settlementOptionContainer != null) _settlementOptionContainer.gameObject.SetActive(isSettlement);
             // 结算页：隐藏返回/指定种子按钮（由结算页自己的按钮替代）
             if (_returnToMenuButton != null) _returnToMenuButton.gameObject.SetActive(!isCamp && !isSettlement);
-            if (_startWithSeedButton != null) _startWithSeedButton.gameObject.SetActive(!isCamp && !isSettlement);
+            if (_startWithSeedButton != null) _startWithSeedButton.gameObject.SetActive(!isCamp && !isSettlement && !isEvent);
             if (!isCamp)
             {
                 RefreshMapNodes();
@@ -1380,200 +1385,256 @@ namespace OneJourney.Core
             }
         }
 
-        private void ShowEventPage()
+        private void ShowEventPage(string feedback = null)
         {
             var evt = RunSession.CurrentEvent;
             if (evt == null)
             {
+                _eventFeedback = null;
                 ShowPage("事件", "没有进行中的事件。");
                 return;
             }
 
-            string desc = evt.DisplayName + "（" + evt.Id + "）\n" + evt.Description + "\n\n";
-            desc += BuildResourceLine() + "\n";
-            ShowPage("事件", desc);
-            RefreshEventOptions();
+            _eventFeedback = feedback;
+            ShowPage("事件", string.Empty);
         }
 
         private void RefreshEventOptions()
         {
-            // 如果场景中未指定容器，则尝试在 TestPage 下找到或创建一个
-            if (_eventOptionContainer == null)
-            {
-                var pagePanel = _pagePanel != null ? _pagePanel.transform : transform;
-                var existing = pagePanel.Find("EventOptions");
-                if (existing != null) _eventOptionContainer = existing;
-            }
-
-            if (_eventOptionContainer == null) return;
-
-            for (int i = _eventOptionContainer.childCount - 1; i >= 0; i--)
-            {
-                var child = _eventOptionContainer.GetChild(i);
-                if (child.name.StartsWith("EO_"))
-                    Destroy(child.gameObject);
-            }
+            if (_eventPageView == null) return;
 
             var evt = RunSession.CurrentEvent;
             bool showEvents = evt != null && RunSession.CurrentState == GameState.Event;
-            _eventOptionContainer.gameObject.SetActive(showEvents);
+            _eventPageView.gameObject.SetActive(showEvents);
             if (!showEvents) return;
 
-            Font defaultFont = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            _eventPageView.ClearOptions();
+            _eventPageView.SetEvent(evt, BuildResourceLine(), EventPromptText());
 
-            // 待定子选择：渲染可选项（卡牌或单位）
             if (RunSession.PendingEventChoice != EventOptionChoiceKind.None)
             {
-                RenderEventChoiceOptions(defaultFont);
-                return;
+                RenderEventChoiceOptions();
+            }
+            else
+            {
+                _eventPageView.SetOptionTitle("可选行动");
+                for (int i = 0; i < evt.Options.Length; i++)
+                {
+                    var option = evt.Options[i];
+                    string block = RunSession.EventOptionBlockReason(option);
+                    var card = _eventPageView.AddOption(
+                        EventOptionBadge(option),
+                        option.Label,
+                        EventOptionConditionText(option),
+                        string.IsNullOrEmpty(option.ResultText) ? "继续事件" : option.ResultText,
+                        block,
+                        EventOptionColor(option));
+                    if (block == null)
+                    {
+                        int index = i;
+                        card.Button.onClick.AddListener(() => OnEventOptionClicked(index));
+                    }
+                }
             }
 
-            for (int i = 0; i < evt.Options.Length; i++)
-            {
-                var opt = evt.Options[i];
-                string block = RunSession.EventOptionBlockReason(opt);
-                string label = opt.Label + "  [ " + opt.ResultText + " ]";
-                if (opt.Condition == EventOptionCondition.PayResource)
-                {
-                    var costs = new System.Collections.Generic.List<string>();
-                    if (opt.CostFood > 0) costs.Add(opt.CostFood + " 粮");
-                    if (opt.CostWealth > 0) costs.Add(opt.CostWealth + " 财");
-                    if (opt.CostReputation > 0) costs.Add(opt.CostReputation + " 声望");
-                    label = opt.Label + "（" + string.Join(" + ", costs) + "）  [ " + opt.ResultText + " ]";
-                }
+            _eventPageView.RebuildLayout();
+        }
 
-                var go = MakeEventButton(defaultFont, label, block != null);
-                if (block == null)
-                {
-                    int index = i;
-                    go.GetComponent<Button>().onClick.AddListener(() => OnEventOptionClicked(index));
-                }
+        private string EventPromptText()
+        {
+            if (!string.IsNullOrEmpty(_eventFeedback)) return _eventFeedback;
+            switch (RunSession.PendingEventChoice)
+            {
+                case EventOptionChoiceKind.RemoveCard: return "选择一张要移除的卡牌。";
+                case EventOptionChoiceKind.UpgradeCard: return "选择一张要升级的卡牌。";
+                case EventOptionChoiceKind.StatusFatigue: return "选择一名队员移除疲劳。";
+                case EventOptionChoiceKind.StatusDiseaseOrFatigue: return "选择队员和要移除的状态。";
+                default: return "选择一个行动。锁定选项会显示具体原因。";
             }
         }
 
-        private void RenderEventChoiceOptions(Font defaultFont)
+        private void RenderEventChoiceOptions()
         {
             switch (RunSession.PendingEventChoice)
             {
                 case EventOptionChoiceKind.RemoveCard:
                 {
+                    _eventPageView.SetOptionTitle("选择要移除的卡牌");
                     var cards = RunSession.CampaignDeck != null ? RunSession.CampaignDeck.RemoveableCards() : new List<string>();
                     if (cards.Count == 0)
                     {
                         RunSession.RecordResolution("事件", "移除卡", "没有可移除的卡牌");
                         RunSession.CancelEventChoice();
-                        ShowEventPage();
+                        ShowEventPage("没有可移除的卡牌。");
                         return;
                     }
 
-                    foreach (var id in cards)
+                    foreach (string id in cards)
                     {
-                        var c = CardCatalog.Find(id);
-                        var go = MakeEventButton(defaultFont, "移除 " + (c != null ? c.DisplayName : id), false);
+                        var definition = CardCatalog.Find(id);
+                        var card = _eventPageView.AddOption(
+                            "牌",
+                            "移除 " + (definition != null ? definition.DisplayName : id),
+                            "牌组调整",
+                            definition != null ? definition.EffectText : id,
+                            null,
+                            new Color(0.34f, 0.30f, 0.43f));
                         string captured = id;
-                        go.GetComponent<Button>().onClick.AddListener(() => OnEventCardChosen(captured));
+                        card.Button.onClick.AddListener(() => OnEventCardChosen(captured));
                     }
-
                     break;
                 }
 
                 case EventOptionChoiceKind.UpgradeCard:
                 {
+                    _eventPageView.SetOptionTitle("选择要升级的卡牌");
                     if (RunSession.CampaignDeck == null) return;
                     var seen = new HashSet<string>();
-                    foreach (var id in RunSession.CampaignDeck.Cards)
+                    foreach (string id in RunSession.CampaignDeck.Cards)
                     {
                         if (!seen.Add(id)) continue;
-                        var c = CardCatalog.Find(id);
-                        var go = MakeEventButton(defaultFont, "升级 " + (c != null ? c.DisplayName : id), false);
-                        string captured = id;
-                        go.GetComponent<Button>().onClick.AddListener(() => OnEventCardChosen(captured));
+                        var definition = CardCatalog.Find(id);
+                        bool upgraded = RunSession.CampaignDeck.UpgradedCards.Contains(id);
+                        var card = _eventPageView.AddOption(
+                            "升",
+                            "升级 " + (definition != null ? definition.DisplayName : id),
+                            upgraded ? "该卡已经升级" : "牌组调整",
+                            definition != null ? definition.EffectText : id,
+                            upgraded ? "该卡已经升级" : null,
+                            new Color(0.30f, 0.38f, 0.50f));
+                        if (!upgraded)
+                        {
+                            string captured = id;
+                            card.Button.onClick.AddListener(() => OnEventCardChosen(captured));
+                        }
                     }
-
                     break;
                 }
 
                 case EventOptionChoiceKind.StatusFatigue:
+                    _eventPageView.SetOptionTitle("选择要休整的队员");
+                    RenderStatusUnitOptions(false);
+                    break;
+
                 case EventOptionChoiceKind.StatusDiseaseOrFatigue:
+                    _eventPageView.SetOptionTitle("选择队员与治疗项目");
+                    RenderStatusUnitOptions(true);
+                    break;
+            }
+        }
+
+        private void RenderStatusUnitOptions(bool includeDisease)
+        {
+            AddStatusUnitOptions("PLAYER", "主角", RunSession.PlayerFatigue, RunSession.PlayerDisease, includeDisease);
+            foreach (var partner in PartnerRoster.All)
+            {
+                if (!partner.IsRecruited || !partner.IsAlive) continue;
+                AddStatusUnitOptions(partner.Def.Id, partner.Def.DisplayName, partner.Fatigue, partner.Disease, includeDisease);
+            }
+        }
+
+        private void AddStatusUnitOptions(string unitId, string displayName, int fatigue, int disease, bool includeDisease)
+        {
+            string condition = "疲劳 " + fatigue + " / 疾病 " + disease;
+            if (fatigue > 0)
+            {
+                var fatigueCard = _eventPageView.AddOption(displayName, displayName + " · 移除疲劳",
+                    condition, "移除 1 层疲劳", null, new Color(0.35f, 0.31f, 0.23f));
+                string captured = unitId;
+                fatigueCard.Button.onClick.AddListener(() => OnEventUnitChosen(captured, false));
+            }
+
+            if (includeDisease && disease > 0)
+            {
+                var diseaseCard = _eventPageView.AddOption(displayName, displayName + " · 移除疾病",
+                    condition, "移除 1 层疾病", null, new Color(0.24f, 0.39f, 0.31f));
+                string captured = unitId;
+                diseaseCard.Button.onClick.AddListener(() => OnEventUnitChosen(captured, true));
+            }
+        }
+
+        private static string EventOptionBadge(EventOptionDef option)
+        {
+            if (!string.IsNullOrEmpty(option.RequirePartnerId)) return EventPartnerName(option.RequirePartnerId);
+            if (!string.IsNullOrEmpty(option.RecruitPartnerId)) return EventPartnerName(option.RecruitPartnerId);
+            if (option.CombatEnemyIds != null && option.CombatEnemyIds.Length > 0) return "战";
+            if (option.RemoveCard || option.UpgradeCard) return "牌";
+            if (option.StatusChoice != EventStatusChoice.None) return "疗";
+            if (option.CostFood > 0 || option.CostWealth > 0 || option.CostReputation > 0) return "资";
+            return "行";
+        }
+
+        private static string EventOptionConditionText(EventOptionDef option)
+        {
+            var parts = new List<string>();
+            switch (option.Condition)
+            {
+                case EventOptionCondition.PayResource:
                 {
-                    bool disease = RunSession.PendingEventChoice == EventOptionChoiceKind.StatusDiseaseOrFatigue;
-                    RenderStatusUnitButtons(defaultFont, disease);
+                    var costs = new List<string>();
+                    if (option.CostFood > 0) costs.Add(option.CostFood + " 粮食");
+                    if (option.CostWealth > 0) costs.Add(option.CostWealth + " 财富");
+                    if (option.CostReputation > 0) costs.Add(option.CostReputation + " 声望");
+                    parts.Add(costs.Count > 0 ? "消耗：" + string.Join(" + ", costs) : "无消耗");
                     break;
                 }
+                case EventOptionCondition.HasPartnerAndReputation:
+                    parts.Add("需要：" + EventPartnerName(option.RequirePartnerId) + " 且声望 " + option.RequireReputation);
+                    break;
+                case EventOptionCondition.HasPartnerOrReputation:
+                    parts.Add("需要：" + EventPartnerName(option.RequirePartnerId) + " 或声望 " + option.RequireReputation);
+                    break;
+                case EventOptionCondition.HasPartnerOrCard:
+                    parts.Add("需要：" + EventPartnerName(option.RequirePartnerId) + " 或卡牌 " + EventCardName(option.RequireCardId));
+                    break;
+                case EventOptionCondition.HasPartnerOrPartner:
+                    parts.Add("需要：" + EventPartnerName(option.RequirePartnerId) + " 或 " + EventPartnerName(option.RequirePartnerId2));
+                    break;
+                case EventOptionCondition.ReputationAtLeast:
+                    parts.Add("需要：声望 " + option.RequireReputation);
+                    break;
+                case EventOptionCondition.HasRemoveableCard:
+                    parts.Add("需要：牌组中存在可移除卡牌");
+                    break;
+                case EventOptionCondition.HasPartner:
+                    parts.Add("需要：" + EventPartnerName(option.RequirePartnerId));
+                    break;
             }
+
+            if (!string.IsNullOrEmpty(option.RecruitPartnerId))
+                parts.Add("伙伴互动：" + EventPartnerName(option.RecruitPartnerId));
+            if (option.CombatEnemyIds != null && option.CombatEnemyIds.Length > 0)
+                parts.Add("后续：战斗 · " + option.CombatLabel);
+            if (option.RemoveCard) parts.Add("后续：选择要移除的卡牌");
+            if (option.UpgradeCard) parts.Add("后续：选择要升级的卡牌");
+            if (option.StatusChoice != EventStatusChoice.None) parts.Add("后续：选择队员");
+
+            return parts.Count > 0 ? string.Join("；", parts) : "无条件";
         }
 
-        private void RenderStatusUnitButtons(Font defaultFont, bool includeDisease)
+        private static Color EventOptionColor(EventOptionDef option)
         {
-            // 主角
-            if (RunSession.PlayerFatigue > 0 || (includeDisease && RunSession.PlayerDisease > 0))
-            {
-                var go = MakeEventButton(defaultFont, "主角（疲劳 " + RunSession.PlayerFatigue
-                    + (includeDisease ? " / 疾病 " + RunSession.PlayerDisease : "") + "）", false);
-                go.GetComponent<Button>().onClick.AddListener(() => OnEventUnitChosen("PLAYER", false));
-                if (includeDisease && RunSession.PlayerDisease > 0)
-                {
-                    var go2 = MakeEventButton(defaultFont, "主角 — 移除疾病", false);
-                    go2.GetComponent<Button>().onClick.AddListener(() => OnEventUnitChosen("PLAYER", true));
-                }
-            }
-
-            // 存活伙伴
-            foreach (var p in PartnerRoster.All)
-            {
-                if (!p.IsRecruited || !p.IsAlive) continue;
-                if (p.Fatigue > 0 || (includeDisease && p.Disease > 0))
-                {
-                    var go = MakeEventButton(defaultFont, p.Def.DisplayName + "（疲劳 " + p.Fatigue
-                        + (includeDisease ? " / 疾病 " + p.Disease : "") + "）", false);
-                    string pid = p.Def.Id;
-                    go.GetComponent<Button>().onClick.AddListener(() => OnEventUnitChosen(pid, false));
-                    if (includeDisease && p.Disease > 0)
-                    {
-                        var go2 = MakeEventButton(defaultFont, p.Def.DisplayName + " — 移除疾病", false);
-                        string pid2 = p.Def.Id;
-                        go2.GetComponent<Button>().onClick.AddListener(() => OnEventUnitChosen(pid2, true));
-                    }
-                }
-            }
+            if (option.CombatEnemyIds != null && option.CombatEnemyIds.Length > 0)
+                return new Color(0.40f, 0.24f, 0.23f);
+            if (option.StatusChoice != EventStatusChoice.None)
+                return new Color(0.24f, 0.39f, 0.31f);
+            if (!string.IsNullOrEmpty(option.RequirePartnerId) || !string.IsNullOrEmpty(option.RecruitPartnerId))
+                return new Color(0.23f, 0.37f, 0.40f);
+            if (option.Condition == EventOptionCondition.PayResource)
+                return new Color(0.39f, 0.32f, 0.22f);
+            return new Color(0.27f, 0.36f, 0.50f);
         }
 
-        private GameObject MakeEventButton(Font font, string label, bool disabled)
+        private static string EventPartnerName(string partnerId)
         {
-            var go = new GameObject("EO_" + label, typeof(RectTransform), typeof(Image), typeof(Button), typeof(LayoutElement));
-            go.transform.SetParent(_eventOptionContainer, false);
+            var partner = PartnerRoster.Find(partnerId);
+            return partner != null ? partner.Def.DisplayName : partnerId;
+        }
 
-            var img = go.GetComponent<Image>();
-            img.color = disabled ? new Color(0.25f, 0.25f, 0.25f) : new Color(0.3f, 0.45f, 0.6f);
-
-            // 宽度按文本估算（字号 16，中文约 16px/字，留边距）；布局组按 preferredWidth 控制宽度
-            var le = go.GetComponent<LayoutElement>();
-            le.minWidth = 160;
-            le.preferredWidth = label.Length * 18 + 32;
-            le.minHeight = 38;
-            le.preferredHeight = 38;
-
-            var textGo = new GameObject("Text", typeof(RectTransform), typeof(Text));
-            textGo.transform.SetParent(go.transform, false);
-
-            var text = textGo.GetComponent<Text>();
-            text.text = label;
-            text.font = font;
-            text.fontSize = 16;
-            text.alignment = TextAnchor.MiddleCenter;
-            text.color = Color.white;
-            text.raycastTarget = false;
-            text.horizontalOverflow = HorizontalWrapMode.Wrap;
-            text.verticalOverflow = VerticalWrapMode.Truncate;
-
-            var textRt = (RectTransform)textGo.transform;
-            textRt.anchorMin = Vector2.zero;
-            textRt.anchorMax = Vector2.one;
-            textRt.offsetMin = new Vector2(8, 2);
-            textRt.offsetMax = new Vector2(-8, -2);
-
-            go.GetComponent<Button>().interactable = !disabled;
-            return go;
+        private static string EventCardName(string cardId)
+        {
+            var card = CardCatalog.Find(cardId);
+            return card != null ? card.DisplayName : cardId;
         }
 
         private void OnEventOptionClicked(int optionIndex)
@@ -1583,8 +1644,7 @@ namespace OneJourney.Core
             if (RunSession.PendingEventChoice != EventOptionChoiceKind.None)
             {
                 // 进入子选择
-                ShowEventPage();
-                _pageDescriptionText.text += "\n" + result;
+                ShowEventPage(result);
                 return;
             }
 
@@ -1598,8 +1658,7 @@ namespace OneJourney.Core
             if (RunSession.CurrentEvent != null)
             {
                 // 仍在事件中（测试入口无地图），显示结算
-                ShowEventPage();
-                _pageDescriptionText.text += "\n" + result;
+                ShowEventPage(result);
                 return;
             }
 
@@ -1630,8 +1689,7 @@ namespace OneJourney.Core
         {
             if (RunSession.CurrentEvent != null)
             {
-                ShowEventPage();
-                _pageDescriptionText.text += "\n" + result;
+                ShowEventPage(result);
                 return;
             }
 

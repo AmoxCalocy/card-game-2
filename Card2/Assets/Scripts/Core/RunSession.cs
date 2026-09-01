@@ -431,6 +431,12 @@ namespace OneJourney.Core
                 if (!recruit.IsAlive) return recruit.Def.DisplayName + " 已阵亡，无法招募";
             }
 
+            // 需要选择单位的状态移除选项，必须至少存在一个合法目标。
+            if (opt.StatusChoice == EventStatusChoice.FatigueSingle && !HasStatusTarget(includeDisease: false))
+                return "没有可移除疲劳的存活单位";
+            if (opt.StatusChoice == EventStatusChoice.DiseaseOrFatigueSingle && !HasStatusTarget(includeDisease: true))
+                return "没有可治疗的疲劳或疾病目标";
+
             switch (opt.Condition)
             {
                 case EventOptionCondition.PayResource:
@@ -952,6 +958,18 @@ namespace OneJourney.Core
         }
 
         // === 事件内部 ===
+
+        private static bool HasStatusTarget(bool includeDisease)
+        {
+            if (PlayerFatigue > 0 || (includeDisease && PlayerDisease > 0)) return true;
+            foreach (var partner in PartnerRoster.All)
+            {
+                if (!partner.IsRecruited || !partner.IsAlive) continue;
+                if (partner.Fatigue > 0 || (includeDisease && partner.Disease > 0)) return true;
+            }
+
+            return false;
+        }
 
         private static bool IsPartnerAvailable(string partnerId)
         {
