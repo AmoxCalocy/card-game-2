@@ -57,8 +57,8 @@ namespace OneJourney.Core
         [Header("手牌出牌（A1-13）")]
         [SerializeField] private Transform _handCardContainer;
 
-        [Header("地图节点（A2-17）")]
-        [SerializeField] private Transform _mapNodeContainer;
+        [Header("地图页（A2-17 / 布局优化）")]
+        [SerializeField] private MapPageView _mapPageView;
 
         [Header("营地页（A2-21 / 布局优化）")]
         [SerializeField] private Transform _campOptionContainer;
@@ -262,6 +262,7 @@ namespace OneJourney.Core
             if (_campOptionContainer != null) _campOptionContainer.gameObject.SetActive(false);
             if (_settlementOptionContainer != null) _settlementOptionContainer.gameObject.SetActive(false);
             if (_eventPageView != null) _eventPageView.gameObject.SetActive(false);
+            if (_mapPageView != null) _mapPageView.gameObject.SetActive(false);
             RefreshSaveUi();
             Refresh();
         }
@@ -323,17 +324,18 @@ namespace OneJourney.Core
             // A2-21：营地页只显示营地内容，隐藏其他动态容器与测试按钮区块
             bool isCamp = RunSession.CurrentState == GameState.Camp;
             bool isEvent = RunSession.CurrentState == GameState.Event && RunSession.CurrentEvent != null;
+            bool isMap = RunSession.CurrentState == GameState.Map && RegionMap.IsGenerated;
             // A2-24：结算页只显示结算操作（返回主菜单 / 同种子重开）
             bool isSettlement = RunSession.CurrentState == GameState.Settlement;
-            _pageTitleText.gameObject.SetActive(!isEvent);
-            _pageDescriptionText.gameObject.SetActive(!isEvent);
+            _pageTitleText.gameObject.SetActive(!isEvent && !isMap);
+            _pageDescriptionText.gameObject.SetActive(!isEvent && !isMap);
             if (_eventPageView != null) _eventPageView.gameObject.SetActive(isEvent);
-            // 手牌容器仅在营地页强制隐藏；非营地页由 RefreshHandCards 决定（仅战斗状态显示）
-            if (_handCardContainer != null && (isCamp || isEvent)) _handCardContainer.gameObject.SetActive(false);
-            if (_mapNodeContainer != null) _mapNodeContainer.gameObject.SetActive(!isCamp && !isEvent);
+            if (_mapPageView != null) _mapPageView.gameObject.SetActive(isMap);
+            // 手牌容器仅在营地/事件/地图页强制隐藏；非这些页面由 RefreshHandCards 决定
+            if (_handCardContainer != null && (isCamp || isEvent || isMap)) _handCardContainer.gameObject.SetActive(false);
             var pagePanel = _pagePanel != null ? _pagePanel.transform : transform;
             var combatActions = pagePanel.Find("CombatActions");
-            if (combatActions != null) combatActions.gameObject.SetActive(!isCamp && !isEvent);
+            if (combatActions != null) combatActions.gameObject.SetActive(!isCamp && !isEvent && !isMap);
             var bottomRow = pagePanel.Find("BottomRow");
             if (bottomRow != null) bottomRow.gameObject.SetActive(!isCamp && !isSettlement);
             ResolveCampLayoutRefs();
@@ -345,7 +347,7 @@ namespace OneJourney.Core
             if (_startWithSeedButton != null) _startWithSeedButton.gameObject.SetActive(!isCamp && !isSettlement && !isEvent);
             if (!isCamp)
             {
-                RefreshMapNodes();
+                RefreshMapPage();
                 RefreshEventOptions();
             }
 
@@ -870,77 +872,24 @@ namespace OneJourney.Core
             }
         }
 
-        private void RefreshMapNodes()
+        private void RefreshMapPage()
         {
-            // 如果场景中未指定容器，则尝试在 TestPage 下找到或创建一个
-            if (_mapNodeContainer == null)
-            {
-                var pagePanel = _pagePanel != null ? _pagePanel.transform : transform;
-                var existing = pagePanel.Find("MapNodes");
-                if (existing != null) _mapNodeContainer = existing;
-            }
-
-            if (_mapNodeContainer == null) return;
+            if (_mapPageView == null) return;
 
             bool showMap = RunSession.CurrentState == GameState.Map && RegionMap.IsGenerated;
-            _mapNodeContainer.gameObject.SetActive(showMap);
+            _mapPageView.gameObject.SetActive(showMap);
             if (!showMap) return;
 
-            // 清理旧按钮
-            for (int i = _mapNodeContainer.childCount - 1; i >= 0; i--)
-            {
-                var child = _mapNodeContainer.GetChild(i);
-                if (child.name.StartsWith("MN_"))
-                    Destroy(child.gameObject);
-            }
-
-            var reachable = RegionMap.ReachableNext();
-            var nodes = RegionMap.Nodes;
-            Font defaultFont = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-
-            for (int i = 0; i < nodes.Count; i++)
-            {
-                var node = nodes[i];
-                bool canMove = reachable.Contains(i);
-                bool isCurrent = RegionMap.CurrentNodeIndex == i;
-                bool isVisited = RegionMap.IsVisited(i);
-
-                string marker = isCurrent ? "◆ " : (isVisited ? "· " : "");
-                string label = marker + "第" + node.Layer + "层·" + node.DisplayName;
-
-                var go = new GameObject("MN_" + i, typeof(RectTransform), typeof(Image), typeof(Button), typeof(LayoutElement));
-                go.transform.SetParent(_mapNodeContainer, false);
-
-                var img = go.GetComponent<Image>();
-                if (isCurrent) img.color = new Color(0.4f, 0.55f, 0.3f);
-                else if (canMove) img.color = new Color(0.3f, 0.45f, 0.6f);
-                else img.color = new Color(0.22f, 0.22f, 0.28f);
-
-                var le = go.GetComponent<LayoutElement>();
-                le.minWidth = 200;
-                le.minHeight = 30;
-
-                var textGo = new GameObject("Text", typeof(RectTransform), typeof(Text));
-                textGo.transform.SetParent(go.transform, false);
-
-                var text = textGo.GetComponent<Text>();
-                text.text = label;
-                text.font = defaultFont;
-                text.fontSize = 14;
-                text.alignment = TextAnchor.MiddleCenter;
-                text.color = Color.white;
-                text.raycastTarget = false;
-
-                var textRt = (RectTransform)textGo.transform;
-                textRt.anchorMin = Vector2.zero;
-                textRt.anchorMax = Vector2.one;
-                textRt.sizeDelta = Vector2.zero;
-
-                int index = i;
-                var btn = go.GetComponent<Button>();
-                btn.interactable = canMove;
-                btn.onClick.AddListener(() => OnMapNodeClicked(index));
-            }
+            _mapPageView.SetMap(
+                RegionMap.Region,
+                RegionMap.Nodes,
+                RegionMap.Path,
+                RegionMap.CurrentNodeIndex,
+                RegionMap.VisitedIndexes,
+                RegionMap.ReachableNext(),
+                BuildResourceLine(),
+                BuildMapRiskHint(),
+                OnMapNodeClicked);
         }
 
         private void OnMapNodeClicked(int nodeIndex)
@@ -1701,6 +1650,19 @@ namespace OneJourney.Core
             {
                 ShowPage("事件", "事件已结算：" + result);
             }
+        }
+
+        private static string BuildMapRiskHint()
+        {
+            bool jungle = RegionMap.Region == ContentRegion.Jungle;
+            string riskGain = jungle ? "密林移动 +2" : "草原移动 +1";
+            string ambush = jungle ? "伏匪+毒丝蛛" : "路匪+野犬";
+            string hint = "风险 " + RunSession.Risk + "/" + GameStartParameters.RiskThreshold
+                + "  ·  " + riskGain
+                + "  ·  精英节点额外 +1"
+                + "  ·  达到上限触发危机伏击（" + ambush + "，按精英奖励）";
+            if (RunSession.AmbushPending) hint += "  ·  危机伏击将在下一次移动触发";
+            return hint;
         }
 
         private static string BuildMapDescription()
