@@ -68,7 +68,10 @@ namespace OneJourney.Core
         [SerializeField] private TMP_Text _campFacilityTitleText;
         [SerializeField] private CampTeamCardView _campTeamCardPrefab;
         [SerializeField] private CampFacilityCardView _campFacilityCardPrefab;
+
+        [Header("结算页面（A2-24 / 失败页优化）")]
         [SerializeField] private Transform _settlementOptionContainer;
+        [SerializeField] private FailurePageView _failurePageView;
 
         private enum CampPageMode { None, Rest, ClinicCamp, ClinicTown, ClinicRelic, FreeUpgrade, DeckView }
         private CampPageMode _campMode;
@@ -261,6 +264,7 @@ namespace OneJourney.Core
             _pagePanel.SetActive(false);
             if (_campOptionContainer != null) _campOptionContainer.gameObject.SetActive(false);
             if (_settlementOptionContainer != null) _settlementOptionContainer.gameObject.SetActive(false);
+            if (_failurePageView != null) _failurePageView.gameObject.SetActive(false);
             if (_eventPageView != null) _eventPageView.gameObject.SetActive(false);
             if (_mapPageView != null) _mapPageView.gameObject.SetActive(false);
             RefreshSaveUi();
@@ -325,23 +329,29 @@ namespace OneJourney.Core
             bool isCamp = RunSession.CurrentState == GameState.Camp;
             bool isEvent = RunSession.CurrentState == GameState.Event && RunSession.CurrentEvent != null;
             bool isMap = RunSession.CurrentState == GameState.Map && RegionMap.IsGenerated;
-            // A2-24：结算页只显示结算操作（返回主菜单 / 同种子重开）
+            // A2-24：结算页只显示对应结算内容
             bool isSettlement = RunSession.CurrentState == GameState.Settlement;
-            _pageTitleText.gameObject.SetActive(!isEvent && !isMap);
-            _pageDescriptionText.gameObject.SetActive(!isEvent && !isMap);
+            bool isFailurePage = isSettlement
+                && _failurePageView != null
+                && RunSession.LastSettlement != null
+                && RunSession.LastSettlement.Result == "失败";
+            bool isVictorySettlement = isSettlement && !isFailurePage;
+            _pageTitleText.gameObject.SetActive(!isEvent && !isMap && !isFailurePage);
+            _pageDescriptionText.gameObject.SetActive(!isEvent && !isMap && !isFailurePage);
             if (_eventPageView != null) _eventPageView.gameObject.SetActive(isEvent);
             if (_mapPageView != null) _mapPageView.gameObject.SetActive(isMap);
-            // 手牌容器仅在营地/事件/地图页强制隐藏；非这些页面由 RefreshHandCards 决定
-            if (_handCardContainer != null && (isCamp || isEvent || isMap)) _handCardContainer.gameObject.SetActive(false);
+            if (_failurePageView != null) _failurePageView.gameObject.SetActive(isFailurePage);
+            // 手牌容器仅在营地/事件/地图/失败页强制隐藏；非这些页面由 RefreshHandCards 决定
+            if (_handCardContainer != null && (isCamp || isEvent || isMap || isFailurePage)) _handCardContainer.gameObject.SetActive(false);
             var pagePanel = _pagePanel != null ? _pagePanel.transform : transform;
             var combatActions = pagePanel.Find("CombatActions");
-            if (combatActions != null) combatActions.gameObject.SetActive(!isCamp && !isEvent && !isMap);
+            if (combatActions != null) combatActions.gameObject.SetActive(!isCamp && !isEvent && !isMap && !isFailurePage);
             var bottomRow = pagePanel.Find("BottomRow");
             if (bottomRow != null) bottomRow.gameObject.SetActive(!isCamp && !isSettlement);
             ResolveCampLayoutRefs();
             if (_campOptionContainer != null) _campOptionContainer.gameObject.SetActive(isCamp);
             if (_campLayoutRoot != null) _campLayoutRoot.SetActive(isCamp);
-            if (_settlementOptionContainer != null) _settlementOptionContainer.gameObject.SetActive(isSettlement);
+            if (_settlementOptionContainer != null) _settlementOptionContainer.gameObject.SetActive(isVictorySettlement);
             // 结算页：隐藏返回/指定种子按钮（由结算页自己的按钮替代）
             if (_returnToMenuButton != null) _returnToMenuButton.gameObject.SetActive(!isCamp && !isSettlement);
             if (_startWithSeedButton != null) _startWithSeedButton.gameObject.SetActive(!isCamp && !isSettlement && !isEvent);
@@ -358,6 +368,12 @@ namespace OneJourney.Core
         {
             RunSession.StartNewGame();
             ShowPage("地图（新游戏入口）", BuildMapDescription());
+        }
+
+        private void StartFreshGameFromFailure()
+        {
+            RunSession.Reset();
+            OnStartNewGame();
         }
 
         private void OnContinueGame()
@@ -493,6 +509,13 @@ namespace OneJourney.Core
             if (s == null)
             {
                 ShowPage("结算", "无结算数据。");
+                return;
+            }
+
+            if (s.Result == "失败" && _failurePageView != null)
+            {
+                _failurePageView.SetFailure(s, StartFreshGameFromFailure);
+                ShowPage("失败", string.Empty);
                 return;
             }
 
