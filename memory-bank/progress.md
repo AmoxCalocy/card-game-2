@@ -330,5 +330,19 @@ aiEditMode: inherit
   - `EventTests.cs` +2 回归用例：E10 无疲劳目标拒绝、E14 无可治疗目标拒绝且可改选出售；事件测试共 59 个。
 - 验证：核心程序集编译 0 错误；Play 冒烟覆盖营地伙伴/设施 Prefab、休整/建造、事件 E01/E03/E07/E14、锁定提示与子选择；完整 `EventTests` 59/59 通过；用户确认布局、交互和修复均通过。
 
+## 2026-09-02 · 界面优化：地图、失败、战斗与奖励页（用户已验证）
+- 地图页：
+  - `Assets/Prefabs/MapPage.prefab` + `MapPageView.cs`（新）— 将旧纵向节点按钮清单替换为完整区域地图：顶部集中显示区域、层数、四资源与风险提示；下方全宽路线区显示起点、四层节点与连接线，当前路径/可达路线高亮，未来路线弱化；移除“旅程信息”和独立“路线选择”侧栏。
+  - `Assets/Prefabs/MapNode.prefab` + `MapNodeView.cs`（新）— 可复用节点卡：战斗/事件/营地/精英/首领徽标，未来/可达/当前/已访问四种状态；可达节点首次点击显示“再次点击前往”，第二次点击才执行移动，不再显示“下一层选择”按钮。
+  - `GameUi.cs` / `Assets/Scenes/SampleScene.unity` — 旧 `MapNodes` 运行时按钮生成被 `MapPageView.SetMap` 取代，场景持有 `MapPage` Prefab 实例；地图推进、事件/营地/战斗分流、存档规则均未改变。
+- 失败页：
+  - `Assets/Prefabs/FailurePage.prefab` + `FailurePageView.cs`（新）— Canvas 直属全屏覆盖层，失败卡严格位于画面中心，显示失败原因、区域/用时/种子，提示下方提供“开始新游戏”按钮。
+  - `GameUi.cs` — 失败结算单独分流到 `FailurePageView`；按钮先 `RunSession.Reset()` 再开启随机新局，确保旧地图/结算清空；胜利结算仍沿用原摘要与按钮流程。
+- 战斗与奖励页：
+  - `BattlePage.prefab` / `UnitCard.prefab` / `EnemyCard.prefab` / `BattleView.cs` — 在不改 RectTransform、布局组和战斗规则的前提下统一为深色底、金色强调、友方蓝/敌方红层级；运行时单位、状态、意图、手牌、选卡和目标高亮同步使用边框与统一 TMP 字体。
+  - `RewardPage.prefab` / `RelicReward.prefab` / `BattleView.ShowRewardPage` — 顶部展示资源入账与当前资源；中央将 3 张卡牌和遗物拆为独立区，卡牌显示攻击/防御/策略/战术/后勤及稀有度，遗物使用横向金色槽；领取后按剩余类别自动居中，两类均处理后显示完成提示与“继续旅程”。
+  - 奖励卡直接实例化 `HandCard.prefab`，不再覆盖 RectTransform 或 LayoutElement；战斗手牌与奖励卡均保持 Prefab 原始 `200×300`、缩放 1、相同布局参数，类型/稀有度以卡名行小字显示，避免挤占效果文本。
+- 验证：普通/精英/首领奖励、先卡后遗物、放弃剩余奖励、完成提示、真实地图战斗返回地图、失败后新开局、战斗选卡/选目标/结束回合均通过；奖励相关 `CombatRewardTests` + `CampaignDeckTests` + `RelicTests` 共 47/47 通过，Console 0 错误；用户确认本轮页面与交互通过。
+
 ## 进行中
 - 下一步：A3-26 完成基础引导与规则说明（等待用户明确指示开始）。

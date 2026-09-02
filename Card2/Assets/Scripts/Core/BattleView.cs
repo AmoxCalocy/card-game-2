@@ -43,9 +43,19 @@ namespace OneJourney.Core
         private GameObject _rewardPanel;
         private TMP_Text _rewardTitleText;
         private TMP_Text _rewardDetailText;
+        private GameObject _rewardCardSection;
+        private TMP_Text _rewardCardTitleText;
+        private TMP_Text _rewardCardHintText;
         private Transform _rewardCardContainer;
+        private GameObject _rewardRelicSection;
+        private TMP_Text _rewardRelicTitleText;
+        private TMP_Text _rewardRelicHintText;
+        private Transform _rewardRelicContainer;
+        private TMP_Text _rewardCompletionText;
         private Button _rewardSkipBtn;
+        private TMP_Text _rewardSkipText;
         private Button _rewardContinueBtn;
+        private TMP_Text _rewardContinueText;
         private readonly List<GameObject> _rewardCardGos = new List<GameObject>();
         private string _rewardStatusText; // 领卡/跳过后显示在明细下
 
@@ -209,11 +219,21 @@ namespace OneJourney.Core
             _rewardPanel = Instantiate(_rewardPagePrefab, canvasTr);
             _rewardPanel.SetActive(false);
             var r = _rewardPanel.transform;
-            _rewardTitleText = r.Find("TitleBar/Title/Text")?.GetComponent<TMP_Text>();
-            _rewardDetailText = r.Find("TitleBar/RewardDetail/Text")?.GetComponent<TMP_Text>();
-            _rewardCardContainer = r.Find("CardOptions");
+            _rewardTitleText = r.Find("HeaderPanel/Title")?.GetComponent<TMP_Text>();
+            _rewardDetailText = r.Find("HeaderPanel/ResourceSummary")?.GetComponent<TMP_Text>();
+            _rewardCardSection = r.Find("Content/CardSection")?.gameObject;
+            _rewardCardTitleText = r.Find("Content/CardSection/Title")?.GetComponent<TMP_Text>();
+            _rewardCardHintText = r.Find("Content/CardSection/Hint")?.GetComponent<TMP_Text>();
+            _rewardCardContainer = r.Find("Content/CardSection/CardOptions");
+            _rewardRelicSection = r.Find("Content/RelicSection")?.gameObject;
+            _rewardRelicTitleText = r.Find("Content/RelicSection/Title")?.GetComponent<TMP_Text>();
+            _rewardRelicHintText = r.Find("Content/RelicSection/Hint")?.GetComponent<TMP_Text>();
+            _rewardRelicContainer = r.Find("Content/RelicSection/RelicOptions");
+            _rewardCompletionText = r.Find("Content/CompletionMessage")?.GetComponent<TMP_Text>();
             _rewardSkipBtn = r.Find("BottomBar/SkipBtn")?.GetComponent<Button>();
+            _rewardSkipText = r.Find("BottomBar/SkipBtn/Text")?.GetComponent<TMP_Text>();
             _rewardContinueBtn = r.Find("BottomBar/ContinueBtn")?.GetComponent<Button>();
+            _rewardContinueText = r.Find("BottomBar/ContinueBtn/Text")?.GetComponent<TMP_Text>();
             if (_rewardSkipBtn != null) _rewardSkipBtn.onClick.AddListener(OnRewardSkip);
             if (_rewardContinueBtn != null) _rewardContinueBtn.onClick.AddListener(OnRewardContinue);
         }
@@ -232,132 +252,269 @@ namespace OneJourney.Core
             if (_rewardTitleText != null) _rewardTitleText.text = "战斗胜利";
             if (_rewardDetailText != null)
             {
-                string detail = string.IsNullOrEmpty(RunSession.LastCombatRewardText)
-                    ? "无资源奖励" : RunSession.LastCombatRewardText;
-                if (!string.IsNullOrEmpty(_rewardStatusText)) detail += "\n" + _rewardStatusText;
-                _rewardDetailText.text = detail;
+                string rewardLine = string.IsNullOrEmpty(RunSession.LastCombatRewardText)
+                    ? "无资源奖励"
+                    : RunSession.LastCombatRewardText;
+                string resourceLine = "当前资源：粮食 " + RunSession.Food + "/" + GameStartParameters.MaxFood
+                    + "  ·  财富 " + RunSession.Wealth + "/" + GameStartParameters.MaxWealth
+                    + "  ·  声望 " + RunSession.Reputation + "/" + GameStartParameters.MaxReputation
+                    + "  ·  建材 " + RunSession.Materials + "/" + GameStartParameters.MaxBuildingMaterials;
+                _rewardDetailText.text = rewardLine + "\n" + resourceLine
+                    + (string.IsNullOrEmpty(_rewardStatusText) ? string.Empty : "\n" + _rewardStatusText);
             }
 
-            // 清空旧选项（清理 RewardPage 根下本页生成的卡片/遗物条目）
-            for (int i = _rewardPanel.transform.childCount - 1; i >= 0; i--)
+            ClearRewardOptionObjects();
+
+            int total = RewardResolver.PendingOptions.Count;
+            int cardCount = 0;
+            int relicCount = 0;
+            for (int i = 0; i < total; i++)
             {
-                var old = _rewardPanel.transform.GetChild(i);
-                if (old.name.StartsWith("Reward")) Destroy(old.gameObject);
+                var option = RewardResolver.PendingOptions[i];
+                if (!string.IsNullOrEmpty(option.CardId)) cardCount++;
+                else if (!string.IsNullOrEmpty(option.RelicId)) relicCount++;
+            }
+
+            ConfigureRewardSections(cardCount, relicCount);
+
+            for (int i = 0; i < total; i++)
+            {
+                int optionIndex = i;
+                var option = RewardResolver.PendingOptions[i];
+                if (!string.IsNullOrEmpty(option.RelicId))
+                {
+                    CreateRewardRelic(option.RelicId, optionIndex);
+                }
+                else if (!string.IsNullOrEmpty(option.CardId))
+                {
+                    CreateRewardCard(option.CardId, optionIndex);
+                }
+            }
+
+            if (_rewardCardContainer != null)
+                LayoutRebuilder.ForceRebuildLayoutImmediate((RectTransform)_rewardCardContainer);
+            if (_rewardRelicContainer != null)
+                LayoutRebuilder.ForceRebuildLayoutImmediate((RectTransform)_rewardRelicContainer);
+
+            bool hasPending = RewardResolver.HasPendingRewards;
+            if (_rewardCompletionText != null)
+            {
+                _rewardCompletionText.gameObject.SetActive(!hasPending);
+                _rewardCompletionText.text = "奖励已处理\n<color=#AAB2C0><size=70%>准备好后继续旅程</size></color>";
+            }
+            if (_rewardSkipBtn != null) _rewardSkipBtn.gameObject.SetActive(hasPending);
+            if (_rewardContinueBtn != null) _rewardContinueBtn.gameObject.SetActive(!hasPending);
+            if (_rewardSkipText != null)
+                _rewardSkipText.text = relicCount > 0 ? "放弃剩余奖励" : "跳过卡牌奖励";
+            if (_rewardContinueText != null) _rewardContinueText.text = "继续旅程";
+            return true;
+        }
+
+        private void ClearRewardOptionObjects()
+        {
+            for (int i = 0; i < _rewardCardGos.Count; i++)
+            {
+                var go = _rewardCardGos[i];
+                if (go == null) continue;
+                go.SetActive(false);
+                Destroy(go);
             }
             _rewardCardGos.Clear();
+        }
 
-            if (RewardResolver.HasPendingRewards)
+        private void ConfigureRewardSections(int cardCount, int relicCount)
+        {
+            bool showCards = cardCount > 0 && _rewardCardContainer != null;
+            bool showRelics = relicCount > 0 && _rewardRelicContainer != null;
+            if (_rewardCardSection != null) _rewardCardSection.SetActive(showCards);
+            if (_rewardRelicSection != null) _rewardRelicSection.SetActive(showRelics);
+
+            if (_rewardCardTitleText != null) _rewardCardTitleText.text = "选择 1 张卡牌";
+            if (_rewardCardHintText != null)
             {
-                int total = RewardResolver.PendingOptions.Count;
-                int cardCount = 0, relicCount = 0;
-                foreach (var o in RewardResolver.PendingOptions)
-                {
-                    if (!string.IsNullOrEmpty(o.CardId)) cardCount++;
-                    else if (!string.IsNullOrEmpty(o.RelicId)) relicCount++;
-                }
-
-                int cardIdx = 0, relicIdx = 0;
-                for (int i = 0; i < total; i++)
-                {
-                    int idx = i;
-                    var opt = RewardResolver.PendingOptions[i];
-
-                    if (!string.IsNullOrEmpty(opt.RelicId))
-                    {
-                        // 遗物奖励：金色条目（prefab），排在卡牌右侧
-                        var relic = RelicCatalog.Find(opt.RelicId);
-                        if (relic == null || _relicRewardPrefab == null) continue;
-                        float x = (cardCount + relicIdx - (total - 1) * 0.5f) * 224f;
-                        var go = Instantiate(_relicRewardPrefab, _rewardPanel.transform);
-                        go.name = "RewardRelic_" + relic.Id;
-                        var rrt = go.GetComponent<RectTransform>();
-                        rrt.anchorMin = new Vector2(0.5f, 0.5f);
-                        rrt.anchorMax = new Vector2(0.5f, 0.5f);
-                        rrt.pivot = new Vector2(0.5f, 0.5f);
-                        rrt.sizeDelta = new Vector2(200, 300);
-                        rrt.anchoredPosition = new Vector2(x, 0);
-                        SetTmp(go, "Name", relic.DisplayName);
-                        SetTmp(go, "Effect", relic.EffectText);
-                        go.GetComponent<Button>().onClick.RemoveAllListeners();
-                        go.GetComponent<Button>().onClick.AddListener(() =>
-                        {
-                            string claimed = RewardResolver.ClaimRelic(idx);
-                            if (claimed != null)
-                            {
-                                RunSession.RecordResolution("战斗奖励", "选择遗物 " + claimed,
-                                    "已获得：" + RelicCatalog.Find(claimed)?.DisplayName);
-                                _rewardStatusText = "已领取遗物：" + relic.DisplayName;
-                            }
-                            _postCombatBuilt = false;
-                            StartCoroutine(RebuildPostCombatNextFrame());
-                        });
-                        _rewardCardGos.Add(go);
-                        relicIdx++;
-                        continue;
-                    }
-
-                    var cardDef = CardCatalog.Find(opt.CardId);
-                    if (cardDef == null) continue;
-
-                    // 卡片直接挂到奖励页根并手动布局：CardOptions 容器下渲染异常（已实测），
-                    // 挂到有 Image 的 RewardPage 根可正常渲染
-                    var go2 = Instantiate(_handCardPrefab, _rewardPanel.transform);
-                    go2.name = "Reward_" + cardDef.Id;
-                    var cardRt = go2.GetComponent<RectTransform>();
-                    cardRt.anchorMin = new Vector2(0.5f, 0.5f);
-                    cardRt.anchorMax = new Vector2(0.5f, 0.5f);
-                    cardRt.pivot = new Vector2(0.5f, 0.5f);
-                    cardRt.sizeDelta = new Vector2(200, 300);
-                    cardRt.anchoredPosition = new Vector2((cardIdx - (total - 1) * 0.5f) * 224f, 0);
-                    Color baseColor = CardColor(cardDef);
-                    var img = go2.GetComponent<Image>();
-                    if (img != null) img.color = new Color(baseColor.r * 0.85f, baseColor.g * 0.85f, baseColor.b * 0.85f);
-                    var bar = go2.transform.Find("TopBar");
-                    if (bar != null)
-                    {
-                        var barImg = bar.GetComponent<Image>();
-                        if (barImg != null) barImg.color = baseColor;
-                    }
-                    SetTmp(go2, "Word/CostRow/Cost", cardDef.Cost.ToString());
-                    SetTmp(go2, "Word/CostRow/Name", cardDef.DisplayName);
-                    SetTmp(go2, "Word/Effect", cardDef.EffectText);
-
-                    var btn = go2.GetComponent<Button>();
-                    if (btn != null)
-                    {
-                        btn.onClick.RemoveAllListeners();
-                        btn.onClick.AddListener(() => {
-                            string claimed = RewardResolver.ClaimCard(idx);
-                            if (claimed != null && RunSession.CampaignDeck != null)
-                            {
-                                RunSession.CampaignDeck.AddCard(claimed);
-                                RunSession.RecordResolution("战斗奖励", "选择卡牌 " + claimed,
-                                    "已加入牌组，当前 " + RunSession.CampaignDeck.Count + " 张");
-                                _rewardStatusText = "已领取：" + cardDef.DisplayName;
-                            }
-                            _postCombatBuilt = false;
-                            StartCoroutine(RebuildPostCombatNextFrame());
-                        });
-                    }
-                    _rewardCardGos.Add(go2);
-                    cardIdx++;
-                }
-                if (_rewardSkipBtn != null) _rewardSkipBtn.gameObject.SetActive(true);
-                if (_rewardContinueBtn != null) _rewardContinueBtn.gameObject.SetActive(false);
+                int deckCount = RunSession.CampaignDeck != null ? RunSession.CampaignDeck.Count : 0;
+                _rewardCardHintText.text = "加入共享牌组  ·  当前 " + deckCount + "/" + GameStartParameters.MaxDeckSize;
             }
-            else
+            if (_rewardRelicTitleText != null) _rewardRelicTitleText.text = "选择 1 件遗物";
+            if (_rewardRelicHintText != null) _rewardRelicHintText.text = "遗物将在领取后立即生效";
+
+            var cardRect = _rewardCardSection != null ? _rewardCardSection.GetComponent<RectTransform>() : null;
+            var relicRect = _rewardRelicSection != null ? _rewardRelicSection.GetComponent<RectTransform>() : null;
+            if (showCards && showRelics)
             {
-                if (_rewardSkipBtn != null) _rewardSkipBtn.gameObject.SetActive(false);
-                if (_rewardContinueBtn != null) _rewardContinueBtn.gameObject.SetActive(true);
+                if (cardRect != null)
+                {
+                    cardRect.anchoredPosition = new Vector2(0f, 115f);
+                    cardRect.sizeDelta = new Vector2(1040f, 400f);
+                }
+                if (relicRect != null)
+                {
+                    relicRect.anchoredPosition = new Vector2(0f, -245f);
+                    relicRect.sizeDelta = new Vector2(1040f, 230f);
+                }
             }
-            return true;
+            else if (showCards && cardRect != null)
+            {
+                cardRect.anchoredPosition = Vector2.zero;
+                cardRect.sizeDelta = new Vector2(1040f, 520f);
+            }
+            else if (showRelics && relicRect != null)
+            {
+                relicRect.anchoredPosition = Vector2.zero;
+                relicRect.sizeDelta = new Vector2(1040f, 360f);
+            }
+        }
+
+        private void CreateRewardCard(string cardId, int optionIndex)
+        {
+            if (_handCardPrefab == null || _rewardCardContainer == null) return;
+            var card = CardCatalog.Find(cardId);
+            if (card == null) return;
+
+            var go = Instantiate(_handCardPrefab, _rewardCardContainer);
+            go.name = "RewardCard_" + card.Id;
+
+            Color baseColor = CardColor(card);
+            var image = go.GetComponent<Image>();
+            if (image != null) image.color = Color.Lerp(new Color(0.09f, 0.11f, 0.15f, 1f), baseColor, 0.50f);
+            var outline = go.GetComponent<Outline>() ?? go.AddComponent<Outline>();
+            outline.effectColor = Color.Lerp(new Color(0.52f, 0.46f, 0.34f, 1f), baseColor, 0.35f);
+            outline.effectDistance = new Vector2(2f, -2f);
+
+            var bar = go.transform.Find("TopBar")?.GetComponent<Image>();
+            if (bar != null) bar.color = Color.Lerp(baseColor, new Color(0.88f, 0.63f, 0.25f, 1f), 0.14f);
+
+            SetTmp(go, "Word/CostRow/Cost", card.Cost.ToString());
+            SetTmp(go, "Word/CostRow/Name", card.DisplayName
+                + "  <size=60%><color=#E9BD5A>" + RewardCardRole(card) + " · "
+                + RewardRarityName(card.Rarity) + "</color></size>");
+            SetTmp(go, "Word/Effect", card.EffectText);
+
+            TMP_FontAsset font = _rewardTitleText != null ? _rewardTitleText.font : null;
+            var costText = go.transform.Find("Word/CostRow/Cost")?.GetComponent<TMP_Text>();
+            if (costText != null)
+            {
+                if (font != null) costText.font = font;
+                costText.color = new Color(0.97f, 0.78f, 0.34f, 1f);
+                costText.fontStyle = FontStyles.Bold;
+            }
+            var nameText = go.transform.Find("Word/CostRow/Name")?.GetComponent<TMP_Text>();
+            if (nameText != null)
+            {
+                if (font != null) nameText.font = font;
+                nameText.color = new Color(0.96f, 0.94f, 0.88f, 1f);
+                nameText.fontSize = 20f;
+                nameText.fontStyle = FontStyles.Bold;
+                nameText.enableWordWrapping = false;
+                nameText.overflowMode = TextOverflowModes.Ellipsis;
+            }
+            var effectText = go.transform.Find("Word/Effect")?.GetComponent<TMP_Text>();
+            if (effectText != null)
+            {
+                if (font != null) effectText.font = font;
+                effectText.color = new Color(0.78f, 0.81f, 0.86f, 1f);
+            }
+
+            var button = go.GetComponent<Button>();
+            if (button != null)
+            {
+                var colors = button.colors;
+                colors.highlightedColor = new Color(1f, 0.94f, 0.78f, 1f);
+                colors.pressedColor = new Color(0.72f, 0.72f, 0.72f, 1f);
+                colors.selectedColor = colors.highlightedColor;
+                colors.fadeDuration = 0.08f;
+                button.colors = colors;
+                string displayName = card.DisplayName;
+                button.onClick.RemoveAllListeners();
+                button.onClick.AddListener(() =>
+                {
+                    string claimed = RewardResolver.ClaimCard(optionIndex);
+                    if (claimed != null && RunSession.CampaignDeck != null)
+                    {
+                        RunSession.CampaignDeck.AddCard(claimed);
+                        RunSession.RecordResolution("战斗奖励", "选择卡牌 " + claimed,
+                            "已加入牌组，当前 " + RunSession.CampaignDeck.Count + " 张");
+                        _rewardStatusText = "已领取卡牌：" + displayName;
+                    }
+                    _postCombatBuilt = false;
+                    StartCoroutine(RebuildPostCombatNextFrame());
+                });
+            }
+
+            _rewardCardGos.Add(go);
+        }
+
+        private void CreateRewardRelic(string relicId, int optionIndex)
+        {
+            if (_relicRewardPrefab == null || _rewardRelicContainer == null) return;
+            var relic = RelicCatalog.Find(relicId);
+            if (relic == null) return;
+
+            var go = Instantiate(_relicRewardPrefab, _rewardRelicContainer);
+            go.name = "RewardRelic_" + relic.Id;
+            var rect = go.GetComponent<RectTransform>();
+            rect.localScale = Vector3.one;
+            rect.sizeDelta = new Vector2(280f, 124f);
+            var layout = go.GetComponent<LayoutElement>() ?? go.AddComponent<LayoutElement>();
+            layout.minWidth = 280f;
+            layout.preferredWidth = 280f;
+            layout.minHeight = 124f;
+            layout.preferredHeight = 124f;
+
+            SetTmp(go, "Name", relic.DisplayName);
+            SetTmp(go, "Effect", (relic.BossOnly ? "<color=#F0C96A><b>首领专属</b></color>\n" : string.Empty)
+                + relic.EffectText);
+            var button = go.GetComponent<Button>();
+            if (button != null)
+            {
+                string displayName = relic.DisplayName;
+                button.onClick.RemoveAllListeners();
+                button.onClick.AddListener(() =>
+                {
+                    string claimed = RewardResolver.ClaimRelic(optionIndex);
+                    if (claimed != null)
+                    {
+                        RunSession.RecordResolution("战斗奖励", "选择遗物 " + claimed,
+                            "已获得：" + RelicCatalog.Find(claimed)?.DisplayName);
+                        _rewardStatusText = "已领取遗物：" + displayName;
+                    }
+                    _postCombatBuilt = false;
+                    StartCoroutine(RebuildPostCombatNextFrame());
+                });
+            }
+
+            _rewardCardGos.Add(go);
+        }
+
+        private static string RewardCardRole(CardDef card)
+        {
+            if (card != null && card.Id != null && card.Id.Length > 1
+                && int.TryParse(card.Id.Substring(1), out int number))
+            {
+                if (number <= 8) return "攻击";
+                if (number <= 16) return "防御";
+                if (number <= 24) return "策略";
+                if (number <= 32) return "战术";
+            }
+            return "后勤";
+        }
+
+        private static string RewardRarityName(CardRarity rarity)
+        {
+            switch (rarity)
+            {
+                case CardRarity.Rare: return "精良";
+                case CardRarity.Epic: return "稀有";
+                case CardRarity.Legendary: return "传说";
+                default: return "普通";
+            }
         }
 
         private void OnRewardSkip()
         {
             RewardResolver.SkipReward();
-            RunSession.RecordResolution("战斗奖励", "跳过卡牌奖励", "已放弃选择");
-            _rewardStatusText = "已跳过奖励";
+            RunSession.RecordResolution("战斗奖励", "放弃剩余奖励", "已放弃未领取的卡牌与遗物");
+            _rewardStatusText = "已放弃剩余奖励";
             _postCombatBuilt = false;
             StartCoroutine(RebuildPostCombatNextFrame());
         }
@@ -419,21 +576,37 @@ namespace OneJourney.Core
             go.name = "Unit_" + unit.DisplayName;
 
             var img = go.GetComponent<Image>();
-            if (img != null) img.color = isAlly
-                ? new Color(0.08f, 0.1f, 0.2f) : new Color(0.15f, 0.06f, 0.06f);
+            Color panelColor = isAlly
+                ? (unit.IsPlayerCharacter
+                    ? new Color(0.12f, 0.18f, 0.26f, 1f)
+                    : new Color(0.10f, 0.15f, 0.22f, 1f))
+                : new Color(0.19f, 0.09f, 0.09f, 1f);
+            if (img != null) img.color = panelColor;
+
+            var outline = go.GetComponent<Outline>() ?? go.AddComponent<Outline>();
+            outline.effectColor = isAlly
+                ? (unit.IsPlayerCharacter
+                    ? new Color(0.78f, 0.58f, 0.25f, 1f)
+                    : new Color(0.28f, 0.42f, 0.58f, 1f))
+                : new Color(0.58f, 0.24f, 0.20f, 1f);
+            outline.effectDistance = new Vector2(2f, -2f);
 
             var bar = go.transform.Find("TopBar");
             if (bar != null)
             {
                 var barImg = bar.GetComponent<Image>();
                 if (barImg != null) barImg.color = isAlly
-                    ? (unit.IsPlayerCharacter ? new Color(0.2f, 0.5f, 0.7f) : new Color(0.22f, 0.35f, 0.55f))
-                    : new Color(0.65f, 0.2f, 0.15f);
+                    ? (unit.IsPlayerCharacter
+                        ? new Color(0.52f, 0.37f, 0.16f, 1f)
+                        : new Color(0.23f, 0.36f, 0.49f, 1f))
+                    : new Color(0.50f, 0.20f, 0.17f, 1f);
             }
 
             SetTmp(go, "Name", unit.DisplayName + (unit.IsAlive ? "" : " [阵亡]"));
             var nameT = go.transform.Find("Name")?.GetComponent<TMP_Text>();
-            if (nameT != null) nameT.color = unit.IsAlive ? Color.white : Color.gray;
+            if (nameT != null) nameT.color = unit.IsAlive
+                ? new Color(0.95f, 0.92f, 0.85f, 1f)
+                : new Color(0.48f, 0.48f, 0.50f, 1f);
 
             // 伙伴定位/特质
             string subText = "";
@@ -446,6 +619,8 @@ namespace OneJourney.Core
                 + "生命 " + unit.CurrentHp + "/" + unit.EffectiveMaxHp;
             if (unit.Armor > 0) hpStr += "  护甲 " + unit.Armor;
             SetTmp(go, "HP", hpStr);
+            var hpText = go.transform.Find("HP")?.GetComponent<TMP_Text>();
+            if (hpText != null) hpText.color = new Color(0.80f, 0.83f, 0.87f, 1f);
 
             var parts = new List<string>();
             if (unit.Bleed > 0) parts.Add("流血" + unit.Bleed);
@@ -453,13 +628,19 @@ namespace OneJourney.Core
             if (unit.Fatigue > 0) parts.Add("疲劳" + unit.Fatigue);
             if (unit.FocusFireExtra > 0) parts.Add("集火+" + unit.FocusFireExtra);
             var st = go.transform.Find("Status")?.GetComponent<TMP_Text>();
-            if (st != null) { st.text = parts.Count > 0 ? string.Join("  ", parts) : ""; st.gameObject.SetActive(parts.Count > 0); }
+            if (st != null)
+            {
+                st.text = parts.Count > 0 ? string.Join("  ", parts) : "";
+                st.color = new Color(0.95f, 0.66f, 0.26f, 1f);
+                st.gameObject.SetActive(parts.Count > 0);
+            }
 
             var it = go.transform.Find("Intent")?.GetComponent<TMP_Text>();
             if (it != null)
             {
                 bool show = !isAlly && unit is EnemyUnit eu && eu.CurrentIntent != null;
                 it.text = show ? "意图：" + ((EnemyUnit)unit).CurrentIntent.Describe() : "";
+                it.color = new Color(0.95f, 0.43f, 0.34f, 1f);
                 it.gameObject.SetActive(show);
             }
 
@@ -469,7 +650,9 @@ namespace OneJourney.Core
                 var captured = unit;
                 btn.onClick.RemoveAllListeners();
                 btn.onClick.AddListener(() => OnTargetSelected(captured));
-                if (img != null) img.color = new Color(0.25f, 0.25f, 0.08f);
+                if (img != null) img.color = new Color(0.30f, 0.25f, 0.12f, 1f);
+                outline.effectColor = new Color(1f, 0.76f, 0.30f, 1f);
+                outline.effectDistance = new Vector2(3f, -3f);
             }
 
             return go;
@@ -497,24 +680,64 @@ namespace OneJourney.Core
             bool selected = _selectedHandIndex == handIndex;
 
             var img = go.GetComponent<Image>();
+            Color cardPanel = Color.Lerp(new Color(0.09f, 0.11f, 0.15f, 1f), baseColor, 0.42f);
             if (img != null) img.color = selected
-                ? new Color(0.5f, 0.4f, 0.15f)
-                : new Color(baseColor.r * 0.6f, baseColor.g * 0.6f, baseColor.b * 0.6f);
+                ? new Color(0.31f, 0.27f, 0.13f, 1f)
+                : cardPanel;
+
+            var outline = go.GetComponent<Outline>() ?? go.AddComponent<Outline>();
+            outline.effectColor = selected
+                ? new Color(1f, 0.76f, 0.30f, 1f)
+                : Color.Lerp(new Color(0.30f, 0.33f, 0.38f, 1f), baseColor, 0.58f);
+            outline.effectDistance = selected ? new Vector2(3f, -3f) : new Vector2(2f, -2f);
 
             var bar = go.transform.Find("TopBar");
             if (bar != null)
             {
                 var barImg = bar.GetComponent<Image>();
-                if (barImg != null) barImg.color = baseColor;
+                if (barImg != null) barImg.color = selected
+                    ? new Color(0.88f, 0.63f, 0.25f, 1f)
+                    : Color.Lerp(baseColor, new Color(0.88f, 0.63f, 0.25f, 1f), 0.12f);
             }
 
             SetTmp(go, "Word/CostRow/Cost", card.Cost.ToString());
             SetTmp(go, "Word/CostRow/Name", card.DisplayName);
             SetTmp(go, "Word/Effect", card.EffectText);
 
+            TMP_FontAsset uiFont = _turnInfoText != null ? _turnInfoText.font : null;
+            var costText = go.transform.Find("Word/CostRow/Cost")?.GetComponent<TMP_Text>();
+            if (costText != null)
+            {
+                if (uiFont != null) costText.font = uiFont;
+                costText.color = new Color(0.97f, 0.78f, 0.34f, 1f);
+                costText.fontStyle = FontStyles.Bold;
+            }
+            var cardNameText = go.transform.Find("Word/CostRow/Name")?.GetComponent<TMP_Text>();
+            if (cardNameText != null)
+            {
+                if (uiFont != null) cardNameText.font = uiFont;
+                cardNameText.color = new Color(0.96f, 0.94f, 0.88f, 1f);
+                cardNameText.fontStyle = FontStyles.Bold;
+            }
+            var effectText = go.transform.Find("Word/Effect")?.GetComponent<TMP_Text>();
+            if (effectText != null)
+            {
+                if (uiFont != null) effectText.font = uiFont;
+                effectText.color = new Color(0.76f, 0.79f, 0.84f, 1f);
+            }
+
             var btn = go.GetComponent<Button>();
             if (btn != null)
             {
+                var colors = btn.colors;
+                colors.normalColor = Color.white;
+                colors.highlightedColor = new Color(1f, 0.94f, 0.78f, 1f);
+                colors.pressedColor = new Color(0.72f, 0.72f, 0.72f, 1f);
+                colors.selectedColor = colors.highlightedColor;
+                colors.disabledColor = new Color(0.48f, 0.48f, 0.48f, 0.65f);
+                colors.fadeDuration = 0.08f;
+                btn.colors = colors;
+
                 int captured = handIndex;
                 btn.onClick.RemoveAllListeners();
                 btn.onClick.AddListener(() => OnHandCardClicked(captured));
