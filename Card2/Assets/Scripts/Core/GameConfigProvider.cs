@@ -11,6 +11,10 @@ namespace OneJourney.Core
 
         public static bool IsReleaseLocked { get; private set; }
 
+        public static bool TestToolsEnabled => Active != null
+            && Active.EnableTestEntries
+            && Mode != GameMode.Release;
+
         public static event Action Changed;
 
         public static void Initialize()
@@ -32,7 +36,7 @@ namespace OneJourney.Core
             }
             else
             {
-                startupMode = GameMode.Testing;
+                startupMode = GameMode.Release;
             }
 
             ApplyMode(startupMode);
@@ -50,7 +54,7 @@ namespace OneJourney.Core
             if (config == null)
             {
                 Debug.LogWarning("[GameConfigProvider] 未找到配置资产 Configs/GameConfig_" + mode + "，使用代码默认值");
-                config = GameConfig.Create(mode, true, mode != GameMode.Release);
+                config = GameConfig.Create(mode, mode != GameMode.Release, mode != GameMode.Release);
             }
 
             Mode = mode;

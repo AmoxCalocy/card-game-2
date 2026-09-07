@@ -344,5 +344,23 @@ aiEditMode: inherit
   - 奖励卡直接实例化 `HandCard.prefab`，不再覆盖 RectTransform 或 LayoutElement；战斗手牌与奖励卡均保持 Prefab 原始 `200×300`、缩放 1、相同布局参数，类型/稀有度以卡名行小字显示，避免挤占效果文本。
 - 验证：普通/精英/首领奖励、先卡后遗物、放弃剩余奖励、完成提示、真实地图战斗返回地图、失败后新开局、战斗选卡/选目标/结束回合均通过；奖励相关 `CombatRewardTests` + `CampaignDeckTests` + `RelicTests` 共 47/47 通过，Console 0 错误；用户确认本轮页面与交互通过。
 
+## 2026-09-07 · 玩家界面结构清理、全 Prefab 化与文字字重统一（用户已验证）
+- 玩家版配置清理：
+  - `GameConfigProvider.cs` 新增 `TestToolsEnabled` 统一门禁；Editor 默认 Development，`-testMode` 进入 Testing，`-releaseMode` 锁定 Release，普通独立 Player 默认 Release；缺少配置资产时 Release 回退值同样关闭 HUD 与测试入口。
+  - `GameUi.cs` / `BattleView.cs` 在 Release 下隐藏 TestHud、测试入口、模式切换、指定种子工具、旧战斗调试控件以及战斗页的上一组/下一组/模拟胜负按钮；正式的新游戏、继续游戏、地图、事件、营地、战斗、奖励和结算操作保持可用。
+- 页面结构全 Prefab 化：
+  - `Assets/Prefabs/MainMenu.prefab`（新）— 主菜单、继续游戏、存档状态、测试入口、模式切换、指定种子与退出统一收进 Prefab；原 Canvas 根级种子输入和按钮已迁入主菜单。
+  - `Assets/Prefabs/TestHud.prefab`（新）— 开发/测试配置的诊断 HUD 独立为 Prefab，Release 不显示。
+  - `Assets/Prefabs/VictoryPage.prefab`（新）— 独立胜利结算页，中央展示原因、区域、用时、牌组、伙伴、资源、建筑、遗物和种子，提供“返回主菜单 / 同种子重开”。
+  - `Assets/Scenes/SampleScene.unity` 的 Canvas 静态子对象现仅保留 `MainMenu`、`MapPage`、`EventPage`、`CampOptions`、`VictoryPage`、`FailurePage`、`TestHud` 七个 Prefab 实例；战斗页与奖励页继续由 `BattleView` 从 Prefab 运行时实例化。
+  - 删除旧非 Prefab `TestPage` 与 `SettlementActions`；地图和事件 Prefab 移为 Canvas 直属页面。`GameUi.cs` 同步删除旧 TestPage 的调试战斗按钮、旧手牌生成及动态胜利按钮代码。
+- 页面导航：
+  - `MapPage.prefab`、`EventPage.prefab`、`CampOptions.prefab`、`RewardPage.prefab`、`FailurePage.prefab`、`VictoryPage.prefab` 均加入与各自标题栏或结算卡自然融合的“返回主菜单”按钮；`BattlePage.prefab` 沿用右侧面板的同名按钮。
+  - 事件上一组/下一组测试按钮迁入 `EventPage/OptionsPanel/TestControls`，仅 Development/Testing 可见；失败页保留“开始新游戏”，并与“返回主菜单”并排；返回主菜单统一执行 `RunSession.Reset()` 清理当前局。
+- 文字字重：
+  - `HandCard.prefab` 的费用、名称与效果文字统一为 `Normal`；`BattleView.CreateHandCard` / `CreateRewardCard` 运行时同样强制 `FontStyles.Normal`，战斗手牌与奖励卡均不再加粗。
+  - `EnemyCard.prefab/Intent` 改为 `FontStyles.Normal + FontWeight.Regular`，敌人意图文字不再加粗。
+- 验证：核心程序集编译 0 错误；Play Mode 自动检查地图、事件、营地、战斗、奖励、胜利结算、失败结算 7 个页面均可返回主菜单；Release 检查确认测试 HUD/入口/种子/事件翻页隐藏且正式返回按钮保留；战斗与奖励卡牌文字、2 个运行时敌人意图均为 Normal/Regular；Console 0 警告/错误；用户完成手动验证。未生成独立 Player 构建。
+
 ## 进行中
 - 下一步：A3-26 完成基础引导与规则说明（等待用户明确指示开始）。

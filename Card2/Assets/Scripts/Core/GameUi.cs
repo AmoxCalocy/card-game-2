@@ -8,17 +8,13 @@ using UnityEngine.UI;
 
 namespace OneJourney.Core
 {
-    /// <summary>主界面驱动：UI 结构在场景中搭建，本组件只持有引用并绑定交互。</summary>
+    /// <summary>主界面驱动：场景只保留页面 Prefab 实例，本组件负责页面切换与运行时交互绑定。</summary>
     public sealed class GameUi : MonoBehaviour
     {
         [Header("根引用")]
-        [SerializeField] private Canvas _canvas;
         [SerializeField] private Text _hudText;
         [SerializeField] private GameObject _menuPanel;
         [SerializeField] private GameObject _menuContent;
-        [SerializeField] private GameObject _pagePanel;
-        [SerializeField] private Text _pageTitleText;
-        [SerializeField] private Text _pageDescriptionText;
 
         [Header("按运行配置显隐的元素")]
         [SerializeField] private List<GameObject> _testEntryElements = new List<GameObject>();
@@ -35,27 +31,6 @@ namespace OneJourney.Core
         [SerializeField] private Button[] _modeSwitchButtons;
         [SerializeField] private GameMode[] _modeSwitchModes;
         [SerializeField] private Button _quitButton;
-        [SerializeField] private Button _recordResolutionButton;
-        [SerializeField] private Button _returnToMenuButton;
-        [SerializeField] private Button _combatVictoryButton;
-        [SerializeField] private Button _combatDefeatButton;
-        [SerializeField] private Button _endTurnButton;
-        [SerializeField] private Button _spendEnergyButton;
-        [SerializeField] private Button _drawCardButton;
-        [SerializeField] private Button _discardHandButton;
-        [SerializeField] private Button _exhaustLastButton;
-        [SerializeField] private Button _addTempCardButton;
-        [SerializeField] private Button _playSingleCardButton;
-        [SerializeField] private Button _playAoeCardButton;
-        [SerializeField] private Button _bleedButton;
-        [SerializeField] private Button _diseaseButton;
-        [SerializeField] private Button _fatigueButton;
-        [SerializeField] private Button _moraleButton;
-        [SerializeField] private Button _prevEncounterButton;
-        [SerializeField] private Button _nextEncounterButton;
-
-        [Header("手牌出牌（A1-13）")]
-        [SerializeField] private Transform _handCardContainer;
 
         [Header("地图页（A2-17 / 布局优化）")]
         [SerializeField] private MapPageView _mapPageView;
@@ -69,9 +44,25 @@ namespace OneJourney.Core
         [SerializeField] private CampTeamCardView _campTeamCardPrefab;
         [SerializeField] private CampFacilityCardView _campFacilityCardPrefab;
 
-        [Header("结算页面（A2-24 / 失败页优化）")]
-        [SerializeField] private Transform _settlementOptionContainer;
+        [Header("结算页面（A2-24 / Prefab）")]
+        [SerializeField] private GameObject _victoryPage;
         [SerializeField] private FailurePageView _failurePageView;
+
+        private Button _mapMenuButton;
+        private Button _eventMenuButton;
+        private Button _eventPreviousButton;
+        private Button _eventNextButton;
+        private Button _campMenuButton;
+        private TMP_Text _campTitleText;
+        private TMP_Text _campResourceText;
+        private TMP_Text _campFeedbackText;
+        private Button _failureMenuButton;
+        private TMP_Text _victoryTitleText;
+        private TMP_Text _victoryReasonText;
+        private TMP_Text _victoryDetailText;
+        private TMP_Text _victoryRestartText;
+        private Button _victoryMenuButton;
+        private Button _victoryRestartButton;
 
         private enum CampPageMode { None, Rest, ClinicCamp, ClinicTown, ClinicRelic, FreeUpgrade, DeckView }
         private CampPageMode _campMode;
@@ -85,6 +76,7 @@ namespace OneJourney.Core
 
         private void Awake()
         {
+            ResolvePrefabPageRefs();
             BindButtons();
 
             RunSession.Changed += Refresh;
@@ -112,128 +104,66 @@ namespace OneJourney.Core
             {
                 LayoutRebuilder.ForceRebuildLayoutImmediate((RectTransform)_menuContent.transform);
             }
+        }
 
-            if (_pagePanel != null)
+        private void ResolvePrefabPageRefs()
+        {
+            if (_mapPageView != null)
+                _mapMenuButton = _mapPageView.transform.Find("HeaderPanel/ReturnToMenuButton")?.GetComponent<Button>();
+
+            if (_eventPageView != null)
             {
-                LayoutRebuilder.ForceRebuildLayoutImmediate((RectTransform)_pagePanel.transform);
+                _eventMenuButton = _eventPageView.transform.Find("OptionsPanel/ReturnToMenuButton")?.GetComponent<Button>();
+                _eventPreviousButton = _eventPageView.transform.Find("OptionsPanel/TestControls/PreviousButton")?.GetComponent<Button>();
+                _eventNextButton = _eventPageView.transform.Find("OptionsPanel/TestControls/NextButton")?.GetComponent<Button>();
+            }
+
+            if (_campOptionContainer != null)
+            {
+                _campMenuButton = _campOptionContainer.Find("HeaderPanel/ReturnToMenuButton")?.GetComponent<Button>();
+                _campTitleText = _campOptionContainer.Find("HeaderPanel/Title")?.GetComponent<TMP_Text>();
+                _campResourceText = _campOptionContainer.Find("HeaderPanel/Resources")?.GetComponent<TMP_Text>();
+                _campFeedbackText = _campOptionContainer.Find("HeaderPanel/Feedback")?.GetComponent<TMP_Text>();
+            }
+
+            if (_failurePageView != null)
+                _failureMenuButton = _failurePageView.transform.Find("FailureCard/ReturnToMenuButton")?.GetComponent<Button>();
+
+            if (_victoryPage != null)
+            {
+                Transform card = _victoryPage.transform.Find("VictoryCard");
+                _victoryTitleText = card?.Find("Title")?.GetComponent<TMP_Text>();
+                _victoryReasonText = card?.Find("Reason")?.GetComponent<TMP_Text>();
+                _victoryDetailText = card?.Find("Detail")?.GetComponent<TMP_Text>();
+                _victoryMenuButton = card?.Find("ReturnToMenuButton")?.GetComponent<Button>();
+                _victoryRestartButton = card?.Find("RestartButton")?.GetComponent<Button>();
+                _victoryRestartText = card?.Find("RestartButton/Text")?.GetComponent<TMP_Text>();
             }
         }
 
         private void BindButtons()
         {
-            if (_startNewGameButton == null
-                || _quitButton == null
-                || _recordResolutionButton == null
-                || _returnToMenuButton == null)
+            if (_startNewGameButton == null || _quitButton == null)
             {
-                Debug.LogError("[GameUi] 关键按钮引用未在场景中配置，请检查 GameUi 组件的按钮绑定", this);
+                Debug.LogError("[GameUi] 主菜单关键按钮引用缺失，请检查 MainMenu Prefab 与 GameUi 绑定", this);
                 return;
             }
 
             _startNewGameButton.onClick.AddListener(OnStartNewGame);
             if (_continueButton != null) _continueButton.onClick.AddListener(OnContinueGame);
             _quitButton.onClick.AddListener(OnQuit);
-            _recordResolutionButton.onClick.AddListener(OnRecordSampleResolution);
-            _returnToMenuButton.onClick.AddListener(OnReturnToMenu);
+            if (_mapMenuButton != null) _mapMenuButton.onClick.AddListener(ReturnToMenu);
+            if (_eventMenuButton != null) _eventMenuButton.onClick.AddListener(ReturnToMenu);
+            if (_eventPreviousButton != null) _eventPreviousButton.onClick.AddListener(OnPrevEncounter);
+            if (_eventNextButton != null) _eventNextButton.onClick.AddListener(OnNextEncounter);
+            if (_campMenuButton != null) _campMenuButton.onClick.AddListener(ReturnToMenu);
+            if (_failureMenuButton != null) _failureMenuButton.onClick.AddListener(ReturnToMenu);
+            if (_victoryMenuButton != null) _victoryMenuButton.onClick.AddListener(ReturnToMenu);
+            if (_victoryRestartButton != null) _victoryRestartButton.onClick.AddListener(RestartWithSameSeed);
 
             if (_startWithSeedButton != null)
             {
                 _startWithSeedButton.onClick.AddListener(OnStartWithSeed);
-            }
-
-            if (_combatVictoryButton != null)
-            {
-                _combatVictoryButton.onClick.AddListener(OnSimulateVictory);
-            }
-
-            if (_combatDefeatButton != null)
-            {
-                _combatDefeatButton.onClick.AddListener(OnSimulateDefeat);
-            }
-
-            if (_endTurnButton != null)
-            {
-                _endTurnButton.onClick.AddListener(OnEndTurn);
-            }
-
-            if (_spendEnergyButton != null)
-            {
-                _spendEnergyButton.onClick.AddListener(OnSpendEnergy);
-            }
-
-            if (_drawCardButton != null)
-            {
-                _drawCardButton.onClick.AddListener(OnDrawCard);
-            }
-
-            if (_discardHandButton != null)
-            {
-                _discardHandButton.onClick.AddListener(OnDiscardHand);
-            }
-
-            if (_exhaustLastButton != null)
-            {
-                _exhaustLastButton.onClick.AddListener(OnExhaustLast);
-            }
-
-            if (_addTempCardButton != null)
-            {
-                _addTempCardButton.onClick.AddListener(OnAddTempCard);
-            }
-
-            if (_playSingleCardButton != null)
-            {
-                _playSingleCardButton.onClick.AddListener(() => OnPlayHandCard(0));
-            }
-
-            if (_playAoeCardButton != null)
-            {
-                _playAoeCardButton.onClick.AddListener(() =>
-                {
-                    // 找到手牌中第一个 AOE 卡并打出
-                    if (CombatManager.Deck == null) return;
-                    for (int i = 0; i < CombatManager.Deck.HandSize; i++)
-                    {
-                        var c = CardCatalog.Find(CombatManager.Deck.Hand[i]);
-                        if (c != null && c.TargetType == TargetType.AllEnemies)
-                        {
-                            OnPlayHandCard(i);
-                            return;
-                        }
-                    }
-                    // 没有 AOE 卡则打出第一张
-                    if (CombatManager.Deck.HandSize > 0) OnPlayHandCard(0);
-                });
-            }
-
-            if (_bleedButton != null)
-            {
-                _bleedButton.onClick.AddListener(() => OnAddStatus("流血", () => CombatStatus.AddBleed(CombatManager.EnemyTeam[0], 2)));
-            }
-
-            if (_diseaseButton != null)
-            {
-                _diseaseButton.onClick.AddListener(() => OnAddStatus("疾病", () => CombatStatus.AddDisease(CombatManager.EnemyTeam[0], 1)));
-            }
-
-            if (_fatigueButton != null)
-            {
-                _fatigueButton.onClick.AddListener(() => OnAddStatus("疲劳", () => CombatStatus.AddFatigue(CombatManager.PlayerTeam[0], 1)));
-            }
-
-            if (_moraleButton != null)
-            {
-                _moraleButton.onClick.AddListener(() => OnAddStatus("士气", () => CombatManager.AddMorale(2)));
-            }
-
-            if (_prevEncounterButton != null)
-            {
-                _prevEncounterButton.onClick.AddListener(OnPrevEncounter);
-            }
-
-            if (_nextEncounterButton != null)
-            {
-                _nextEncounterButton.onClick.AddListener(OnNextEncounter);
             }
 
             int testCount = Math.Min(_testEntryButtons.Length, _testEntryStates.Length);
@@ -260,15 +190,24 @@ namespace OneJourney.Core
 
         private void ShowMenu()
         {
-            _menuPanel.SetActive(true);
-            _pagePanel.SetActive(false);
-            if (_campOptionContainer != null) _campOptionContainer.gameObject.SetActive(false);
-            if (_settlementOptionContainer != null) _settlementOptionContainer.gameObject.SetActive(false);
-            if (_failurePageView != null) _failurePageView.gameObject.SetActive(false);
-            if (_eventPageView != null) _eventPageView.gameObject.SetActive(false);
-            if (_mapPageView != null) _mapPageView.gameObject.SetActive(false);
+            HidePrefabPages();
+            if (_menuPanel != null) _menuPanel.SetActive(true);
+
+            bool showTestTools = GameConfigProvider.TestToolsEnabled;
+            if (_seedInput != null) _seedInput.gameObject.SetActive(showTestTools);
+            if (_startWithSeedButton != null) _startWithSeedButton.gameObject.SetActive(showTestTools);
             RefreshSaveUi();
-            Refresh();
+            RefreshConfigUi();
+        }
+
+        private void HidePrefabPages()
+        {
+            if (_battleView != null) _battleView.Hide();
+            if (_mapPageView != null) _mapPageView.gameObject.SetActive(false);
+            if (_eventPageView != null) _eventPageView.gameObject.SetActive(false);
+            if (_campOptionContainer != null) _campOptionContainer.gameObject.SetActive(false);
+            if (_victoryPage != null) _victoryPage.SetActive(false);
+            if (_failurePageView != null) _failurePageView.gameObject.SetActive(false);
         }
 
         private void RefreshSaveUi()
@@ -279,89 +218,63 @@ namespace OneJourney.Core
 
         private void ShowPage(string title, string description)
         {
-            _pageTitleText.text = title;
-            _pageDescriptionText.text = description;
-            _menuPanel.SetActive(false);
-            _pagePanel.SetActive(true);
+            _ = title;
+            _ = description;
 
-            bool isCombat = RunSession.CurrentState == GameState.Combat && CombatManager.IsActive;
+            if (_menuPanel != null) _menuPanel.SetActive(false);
+            HidePrefabPages();
 
-            // A1-14：战斗中优先显示 BattleView，隐藏旧版 TestPage
-            if (isCombat && _battleView != null)
+            bool shown = false;
+            if (RunSession.CurrentState == GameState.Combat && CombatManager.IsActive && _battleView != null)
             {
                 _battleView.Show();
                 _battleView.Refresh();
-                if (_pagePanel != null) _pagePanel.SetActive(false);
+                shown = true;
             }
-            else if (_battleView != null)
+            else if (RunSession.CurrentState == GameState.Map && RegionMap.IsGenerated && _mapPageView != null)
             {
-                _battleView.Hide();
-            }
-            if (_combatVictoryButton != null) _combatVictoryButton.gameObject.SetActive(isCombat);
-            if (_combatDefeatButton != null) _combatDefeatButton.gameObject.SetActive(isCombat);
-            if (_endTurnButton != null) _endTurnButton.gameObject.SetActive(isCombat && CombatManager.CanPlayerAct);
-            if (_spendEnergyButton != null)
-            {
-                bool canSpend = isCombat && CombatManager.CanPlayerAct && CombatManager.Energy > 0;
-                _spendEnergyButton.gameObject.SetActive(isCombat && CombatManager.CanPlayerAct);
-                _spendEnergyButton.interactable = canSpend;
-            }
-            if (_drawCardButton != null) _drawCardButton.gameObject.SetActive(isCombat && CombatManager.CanPlayerAct);
-            if (_discardHandButton != null) _discardHandButton.gameObject.SetActive(isCombat && CombatManager.CanPlayerAct);
-            if (_exhaustLastButton != null) _exhaustLastButton.gameObject.SetActive(isCombat && CombatManager.CanPlayerAct);
-            if (_addTempCardButton != null) _addTempCardButton.gameObject.SetActive(isCombat && CombatManager.CanPlayerAct);
-            if (_playSingleCardButton != null) _playSingleCardButton.gameObject.SetActive(isCombat && CombatManager.CanPlayerAct);
-            if (_playAoeCardButton != null) _playAoeCardButton.gameObject.SetActive(isCombat && CombatManager.CanPlayerAct);
-            if (_bleedButton != null) _bleedButton.gameObject.SetActive(isCombat && CombatManager.CanPlayerAct);
-            if (_diseaseButton != null) _diseaseButton.gameObject.SetActive(isCombat && CombatManager.CanPlayerAct);
-            if (_fatigueButton != null) _fatigueButton.gameObject.SetActive(isCombat && CombatManager.CanPlayerAct);
-            if (_moraleButton != null) _moraleButton.gameObject.SetActive(isCombat && CombatManager.CanPlayerAct);
-            // 翻页按钮为测试辅助（切遭遇/切事件），仅测试配置可见
-            bool showTestEntries = GameConfigProvider.Active != null
-                && GameConfigProvider.Active.EnableTestEntries                && !GameConfigProvider.IsReleaseLocked;
-            bool canSwitchEncounter = showTestEntries
-                && (RunSession.CurrentState == GameState.Combat || RunSession.CurrentState == GameState.Event);
-            if (_prevEncounterButton != null) _prevEncounterButton.gameObject.SetActive(canSwitchEncounter);
-            if (_nextEncounterButton != null) _nextEncounterButton.gameObject.SetActive(canSwitchEncounter);
-
-            RefreshHandCards();
-            // A2-21：营地页只显示营地内容，隐藏其他动态容器与测试按钮区块
-            bool isCamp = RunSession.CurrentState == GameState.Camp;
-            bool isEvent = RunSession.CurrentState == GameState.Event && RunSession.CurrentEvent != null;
-            bool isMap = RunSession.CurrentState == GameState.Map && RegionMap.IsGenerated;
-            // A2-24：结算页只显示对应结算内容
-            bool isSettlement = RunSession.CurrentState == GameState.Settlement;
-            bool isFailurePage = isSettlement
-                && _failurePageView != null
-                && RunSession.LastSettlement != null
-                && RunSession.LastSettlement.Result == "失败";
-            bool isVictorySettlement = isSettlement && !isFailurePage;
-            _pageTitleText.gameObject.SetActive(!isEvent && !isMap && !isFailurePage);
-            _pageDescriptionText.gameObject.SetActive(!isEvent && !isMap && !isFailurePage);
-            if (_eventPageView != null) _eventPageView.gameObject.SetActive(isEvent);
-            if (_mapPageView != null) _mapPageView.gameObject.SetActive(isMap);
-            if (_failurePageView != null) _failurePageView.gameObject.SetActive(isFailurePage);
-            // 手牌容器仅在营地/事件/地图/失败页强制隐藏；非这些页面由 RefreshHandCards 决定
-            if (_handCardContainer != null && (isCamp || isEvent || isMap || isFailurePage)) _handCardContainer.gameObject.SetActive(false);
-            var pagePanel = _pagePanel != null ? _pagePanel.transform : transform;
-            var combatActions = pagePanel.Find("CombatActions");
-            if (combatActions != null) combatActions.gameObject.SetActive(!isCamp && !isEvent && !isMap && !isFailurePage);
-            var bottomRow = pagePanel.Find("BottomRow");
-            if (bottomRow != null) bottomRow.gameObject.SetActive(!isCamp && !isSettlement);
-            ResolveCampLayoutRefs();
-            if (_campOptionContainer != null) _campOptionContainer.gameObject.SetActive(isCamp);
-            if (_campLayoutRoot != null) _campLayoutRoot.SetActive(isCamp);
-            if (_settlementOptionContainer != null) _settlementOptionContainer.gameObject.SetActive(isVictorySettlement);
-            // 结算页：隐藏返回/指定种子按钮（由结算页自己的按钮替代）
-            if (_returnToMenuButton != null) _returnToMenuButton.gameObject.SetActive(!isCamp && !isSettlement);
-            if (_startWithSeedButton != null) _startWithSeedButton.gameObject.SetActive(!isCamp && !isSettlement && !isEvent);
-            if (!isCamp)
-            {
+                _mapPageView.gameObject.SetActive(true);
                 RefreshMapPage();
+                shown = true;
+            }
+            else if (RunSession.CurrentState == GameState.Event && RunSession.CurrentEvent != null && _eventPageView != null)
+            {
+                _eventPageView.gameObject.SetActive(true);
                 RefreshEventOptions();
+                shown = true;
+            }
+            else if (RunSession.CurrentState == GameState.Camp && _campOptionContainer != null)
+            {
+                _campOptionContainer.gameObject.SetActive(true);
+                if (_campLayoutRoot != null) _campLayoutRoot.SetActive(true);
+                shown = true;
+            }
+            else if (RunSession.CurrentState == GameState.Settlement)
+            {
+                bool failure = RunSession.LastSettlement != null
+                    && RunSession.LastSettlement.Result == "失败";
+                if (failure && _failurePageView != null)
+                {
+                    _failurePageView.gameObject.SetActive(true);
+                    shown = true;
+                }
+                else if (!failure && _victoryPage != null)
+                {
+                    _victoryPage.SetActive(true);
+                    shown = true;
+                }
+            }
+            else if (RegionMap.IsGenerated && _mapPageView != null)
+            {
+                _mapPageView.gameObject.SetActive(true);
+                RefreshMapPage();
+                shown = true;
             }
 
-            Refresh();
+            if (!shown)
+                Debug.LogWarning("[GameUi] 当前状态没有可显示的页面 Prefab：" + RunSession.CurrentState, this);
+
+            RefreshConfigUi();
         }
 
         private void OnStartNewGame()
@@ -429,7 +342,7 @@ namespace OneJourney.Core
             if (page == GameState.Combat)
             {
                 desc = "遭遇：" + RunSession.CurrentEncounterLabel() + "\n";
-                desc += CombatManager.IsActive ? BuildCombatDescription() : "点击「◀ 上一组 / 下一组 ▶」切换敌人，返回主菜单再次进入测试。";
+                desc += CombatManager.IsActive ? BuildCombatDescription() : "点击「上一组 / 下一组」切换敌人，返回主菜单再次进入测试。";
             }
             else if (page == GameState.Map)
             {
@@ -437,7 +350,7 @@ namespace OneJourney.Core
             }
             else if (page == GameState.Event)
             {
-                desc = "事件测试入口：点击「◀ 上一组 / 下一组 ▶」在 E01-E20 间切换。\n";
+                desc = "事件测试入口：点击「上一组 / 下一组」在 E01-E20 间切换。\n";
                 var evt = RunSession.CurrentEvent;
                 if (evt != null)
                 {
@@ -459,56 +372,14 @@ namespace OneJourney.Core
             ShowPage("测试入口：" + RunSession.DisplayName(page), desc);
         }
 
-        private void OnRecordSampleResolution()
-        {
-            RunSession.RecordResolution("测试结算（示例）", "普通伤害结算", "目标生命 28 → 22，护甲 0");
-        }
-
-        private void OnSimulateVictory()
-        {
-            if (!CombatManager.IsActive) return;
-
-            // 将所有敌人血量清零模拟胜利
-            foreach (var e in CombatManager.EnemyTeam)
-            {
-                if (e.IsAlive) e.TakeDamage(e.CurrentHp + e.Armor);
-            }
-
-            CombatManager.CheckEndCondition();
-            bool won = CombatManager.Phase == CombatPhase.Victory;
-            CombatManager.End();
-            // 胜利：弹出独立奖励页（CheckEndCondition 已记录「战斗奖励」）；失败仍刷新战斗页
-            if (won && _battleView != null && _battleView.ShowRewardPage()) return;
-
-            // 密林首领胜利 → Victory 状态（奖励页「继续」后进结算页）
-            if (won && RunSession.CurrentState == GameState.Victory)
-            {
-                RunSession.EnterSettlement(true, "击败密林首领（垂直切片）");
-                ShowSettlement();
-                return;
-            }
-
-            ShowPage("测试入口：战斗", BuildCombatDescription());
-        }
-
-        private void OnSimulateDefeat()
-        {
-            if (!CombatManager.IsActive) return;
-
-            CombatManager.ForceDefeat();
-            CombatManager.End();
-            RunSession.EnterDefeatState();
-            RunSession.EnterSettlement(false, "主角阵亡");
-            ShowSettlement();
-        }
-
-        /// <summary>显示结算页（A2-24）：摘要 + 真实按钮（返回主菜单 / 同种子重开）。</summary>
+        /// <summary>显示由 Prefab 承载的胜利或失败结算页。</summary>
         public void ShowSettlement()
         {
             var s = RunSession.LastSettlement;
             if (s == null)
             {
-                ShowPage("结算", "无结算数据。");
+                Debug.LogWarning("[GameUi] 无结算数据，返回主菜单", this);
+                ReturnToMenu();
                 return;
             }
 
@@ -519,190 +390,44 @@ namespace OneJourney.Core
                 return;
             }
 
-            string desc = "【" + s.Result + "】\n";
-            desc += "原因：" + s.Reason + "\n";
-            desc += "用时：" + s.ElapsedSeconds + " 秒\n";
-            desc += "区域进度：" + s.RegionProgress + "\n";
-            desc += "最终牌组：" + s.Deck + "  |  伙伴：" + s.Partners + "\n";
-            desc += "资源：" + s.Resources + "\n";
-            desc += "建筑：" + s.Buildings + "  |  遗物：" + s.Relics + "\n";
-            desc += "随机种子：" + s.Seed + "\n\n";
-            ShowPage("本局结算", desc);
-            RefreshSettlementButtons();
+            SetVictoryPage(s);
+            ShowPage("胜利", string.Empty);
         }
 
-        /// <summary>结算页操作按钮：返回主菜单 / 同种子重开。</summary>
-        private void RefreshSettlementButtons()
+        private void SetVictoryPage(RunSession.SettlementSummary summary)
         {
-            ResolveCampLayoutRefs();
-            if (_settlementOptionContainer == null) return;
-            ClearChildren(_settlementOptionContainer);
-
-            if (_campOptionContainer != null) _campOptionContainer.gameObject.SetActive(false);
-            if (_campLayoutRoot != null) _campLayoutRoot.SetActive(false);
-            _settlementOptionContainer.gameObject.SetActive(true);
-            TMP_FontAsset defaultFont = _campFacilityTitleText != null && _campFacilityTitleText.font != null
-                ? _campFacilityTitleText.font
-                : TMP_Settings.defaultFontAsset;
-
-            var toMenu = MakeCampSimpleButton(_settlementOptionContainer, defaultFont, "返回主菜单", false);
-            toMenu.GetComponent<Button>().onClick.AddListener(ReturnToMenu);
-
-            var restart = MakeCampSimpleButton(_settlementOptionContainer, defaultFont,
-                "同种子重开（种子 " + RunSession.LastSettlement.Seed + "）", false);
-            restart.GetComponent<Button>().onClick.AddListener(RestartWithSameSeed);
-        }
-
-        private void OnEndTurn()
-        {
-            if (!CombatManager.CanPlayerAct) return;
-
-            CombatManager.EndPlayerTurn();
-            RunSession.RecordResolution("回合结算", "结束第 " + CombatManager.TurnNumber + " 回合", "进入敌方回合");
-            ShowPage("测试入口：战斗", BuildCombatDescription());
-        }
-
-        private void OnSpendEnergy()
-        {
-            if (!CombatManager.CanSpendEnergy(1)) return;
-
-            CombatManager.SpendEnergy(1);
-            RunSession.RecordResolution("回合操作", "消耗 1 点能量", "剩余能量 " + CombatManager.Energy);
-            ShowPage("测试入口：战斗", BuildCombatDescription());
-        }
-
-        private void OnDrawCard()
-        {
-            if (!CombatManager.CanPlayerAct) return;
-
-            if (CombatManager.Deck.HandSize >= GameStartParameters.MaxHandSize)
+            if (_victoryTitleText != null) _victoryTitleText.text = "旅途凯旋";
+            if (_victoryReasonText != null)
+                _victoryReasonText.text = string.IsNullOrEmpty(summary.Reason) ? "你完成了本次远征" : summary.Reason;
+            if (_victoryDetailText != null)
             {
-                RunSession.RecordResolution("牌堆操作", "抽牌失败", "手牌已满（上限 " + GameStartParameters.MaxHandSize + "）");
-                ShowPage("测试入口：战斗", BuildCombatDescription());
-                return;
+                _victoryDetailText.text = "抵达 " + summary.RegionProgress
+                    + "  ·  用时 " + summary.ElapsedSeconds + " 秒"
+                    + "\n牌组 " + summary.Deck + "  ·  伙伴 " + summary.Partners
+                    + "\n资源 " + summary.Resources
+                    + "\n建筑 " + summary.Buildings + "  ·  遗物 " + summary.Relics
+                    + "\n随机种子：" + summary.Seed;
             }
-
-            int drawn = CombatManager.Deck.DrawToHand(1, GameStartParameters.MaxHandSize);
-            string msg = drawn > 0
-                ? "抽到 " + CombatManager.Deck.Hand[CombatManager.Deck.HandSize - 1]
-                : "牌堆已空";
-            RunSession.RecordResolution("牌堆操作", "抽 1 张牌", msg);
-            ShowPage("测试入口：战斗", BuildCombatDescription());
-        }
-
-        private void OnDiscardHand()
-        {
-            if (!CombatManager.CanPlayerAct || CombatManager.Deck == null) return;
-
-            int count = CombatManager.Deck.HandSize;
-            CombatManager.Deck.DiscardHand();
-            RunSession.RecordResolution("牌堆操作", "弃掉全部手牌", count + " 张进入弃牌堆");
-            ShowPage("测试入口：战斗", BuildCombatDescription());
-        }
-
-        private void OnExhaustLast()
-        {
-            if (!CombatManager.CanPlayerAct || CombatManager.Deck == null) return;
-            if (CombatManager.Deck.HandSize == 0) return;
-
-            string card = CombatManager.Deck.Hand[CombatManager.Deck.HandSize - 1];
-            CombatManager.Deck.ExhaustFromHand(card);
-            RunSession.RecordResolution("牌堆操作", "消耗 " + card, "进入消耗区，不再回到牌堆");
-            ShowPage("测试入口：战斗", BuildCombatDescription());
-        }
-
-        private void OnAddTempCard()
-        {
-            if (!CombatManager.CanPlayerAct || CombatManager.Deck == null) return;
-
-            string tempId = "TEMP_" + CombatManager.TurnNumber + "_" + CombatManager.Deck.HandSize;
-            CombatManager.Deck.Hand.Add(tempId);
-            RunSession.RecordResolution("牌堆操作", "生成临时卡 " + tempId, "仅本场战斗有效");
-            ShowPage("测试入口：战斗", BuildCombatDescription());
-        }
-
-        private void OnPlayTestCard(TargetType type, int cost, int damage)
-        {
-            if (!CombatManager.CanPlayerAct) return;
-
-            string result = CombatResolver.PlayTestCard(cost, type, damage);
-            string typeName = type == TargetType.SingleEnemy ? "单体" : "全体";
-            RunSession.RecordResolution("出牌结算", "测试卡（" + typeName + " " + cost + "费 " + damage + "伤）", result);
-            ShowPage("测试入口：战斗", BuildCombatDescription());
-        }
-
-        private void OnPlayHandCard(int handIndex)
-        {
-            if (!CombatManager.CanPlayerAct || CombatManager.Deck == null) return;
-            if (handIndex < 0 || handIndex >= CombatManager.Deck.HandSize) return;
-
-            string result = CombatResolver.PlayCard(handIndex);
-            // 若这一击结束战斗，CheckEndCondition 已记录「战斗奖励」，出牌记录不再覆盖
-            if (CombatManager.Phase != CombatPhase.Victory && CombatManager.Phase != CombatPhase.Defeat)
-                RunSession.RecordResolution("手牌出牌", "打出第 " + (handIndex + 1) + " 张手牌", result);
-            ShowPage("测试入口：战斗", BuildCombatDescription());
-        }
-
-        private void OnAddStatus(string name, System.Action action)
-        {
-            if (!CombatManager.CanPlayerAct) return;
-
-            action();
-            RunSession.RecordResolution("状态操作", "施加 " + name, BuildCombatDescription().Replace("\n", " / "));
-            ShowPage("测试入口：战斗", BuildCombatDescription());
+            if (_victoryRestartText != null) _victoryRestartText.text = "同种子重开";
         }
 
         private void OnPrevEncounter()
         {
-            if (RunSession.CurrentState == GameState.Event)
-            {
-                RunSession.PrevEvent();
-                ShowEventPage();
-                return;
-            }
-
-            RunSession.PrevEncounter();
-            RelaunchCombat();
+            if (RunSession.CurrentState != GameState.Event) return;
+            RunSession.PrevEvent();
+            ShowEventPage();
         }
 
         private void OnNextEncounter()
         {
-            if (RunSession.CurrentState == GameState.Event)
-            {
-                RunSession.NextEvent();
-                ShowEventPage();
-                return;
-            }
-
-            RunSession.NextEncounter();
-            RelaunchCombat();
-        }
-
-        private void RefreshCombatPage()
-        {
-            string desc = "遭遇：" + RunSession.CurrentEncounterLabel() + "\n";
-            desc += "点击「◀ 上一组 / 下一组 ▶」切换敌人，返回主菜单再次进入测试。";
-            ShowPage("测试入口：战斗", desc);
-        }
-
-        private void RelaunchCombat()
-        {
-            // 状态已在 Combat，直接重开（EnterTestPage 的 Combat→Combat 转移会被状态机拒绝）
-            RunSession.RelaunchTestCombat();
-            string desc = "遭遇：" + RunSession.CurrentEncounterLabel() + "\n" + BuildCombatDescription();
-            ShowPage("测试入口：战斗", desc);
-        }
-
-        private void OnReturnToMenu()
-        {
-            ReturnToMenu();
+            if (RunSession.CurrentState != GameState.Event) return;
+            RunSession.NextEvent();
+            ShowEventPage();
         }
 
         public void ReturnToMenu()
         {
             RunSession.Reset();
-            if (_campOptionContainer != null) _campOptionContainer.gameObject.SetActive(false);
-            if (_settlementOptionContainer != null) _settlementOptionContainer.gameObject.SetActive(false);
             ShowMenu();
         }
 
@@ -742,15 +467,15 @@ namespace OneJourney.Core
 
         private void Refresh()
         {
-            if (_hudText == null)
-            {
-                return;
-            }
-
-            // A1-14：战斗中同步刷新 BattleView
+            // 战斗刷新不依赖测试 HUD 是否存在。
             if (_battleView != null && CombatManager.IsActive)
             {
                 _battleView.Refresh();
+            }
+
+            if (_hudText == null)
+            {
+                return;
             }
 
             var last = RunSession.LastResolution;
@@ -806,93 +531,28 @@ namespace OneJourney.Core
 
         private void RefreshConfigUi()
         {
-            if (_hudText == null)
-            {
-                return;
-            }
-
             var config = GameConfigProvider.Active;
-            bool showTestEntries = config != null && config.EnableTestEntries && !GameConfigProvider.IsReleaseLocked;
-            bool showModeSwitch = !GameConfigProvider.IsReleaseLocked;
+            bool showTestTools = GameConfigProvider.TestToolsEnabled;
 
-            SetElementsActive(_testEntryElements, showTestEntries);
-            SetElementsActive(_modeSwitchElements, showModeSwitch);
-            _hudText.gameObject.SetActive(config != null && config.ShowTestHud);
+            SetElementsActive(_testEntryElements, showTestTools);
+            SetElementsActive(_modeSwitchElements, showTestTools);
+            if (_hudText != null) _hudText.gameObject.SetActive(config != null && config.ShowTestHud);
 
-            // 翻页按钮（切遭遇/切事件）同为测试辅助：配置切换时同步显隐
-            bool inSwitchablePage = RunSession.CurrentState == GameState.Combat
-                || RunSession.CurrentState == GameState.Event;
-            if (_prevEncounterButton != null) _prevEncounterButton.gameObject.SetActive(showTestEntries && inSwitchablePage);
-            if (_nextEncounterButton != null) _nextEncounterButton.gameObject.SetActive(showTestEntries && inSwitchablePage);
+            bool isMenu = _menuPanel != null && _menuPanel.activeSelf;
+            if (_seedInput != null) _seedInput.gameObject.SetActive(showTestTools && isMenu);
+            if (_startWithSeedButton != null) _startWithSeedButton.gameObject.SetActive(showTestTools && isMenu);
+
+            bool showEventTools = showTestTools
+                && _eventPageView != null
+                && _eventPageView.gameObject.activeSelf
+                && RunSession.CurrentState == GameState.Event;
+            if (_eventPreviousButton != null) _eventPreviousButton.gameObject.SetActive(showEventTools);
+            if (_eventNextButton != null) _eventNextButton.gameObject.SetActive(showEventTools);
+
+            if (_menuContent != null && _menuContent.activeInHierarchy)
+                LayoutRebuilder.ForceRebuildLayoutImmediate((RectTransform)_menuContent.transform);
 
             Refresh();
-        }
-
-        private void RefreshHandCards()
-        {
-            // 如果场景中未指定容器，则尝试在 TestPage 下找到或创建一个
-            if (_handCardContainer == null)
-            {
-                var pagePanel = _pagePanel != null ? _pagePanel.transform : transform;
-                var existing = pagePanel.Find("HandCards");
-                if (existing != null) _handCardContainer = existing;
-            }
-
-            if (_handCardContainer == null) return;
-
-            // 手牌区仅战斗状态显示（避免事件/地图页残留黑色背景条）
-            bool showHand = RunSession.CurrentState == GameState.Combat && CombatManager.IsActive;
-            _handCardContainer.gameObject.SetActive(showHand);
-            if (!showHand) return;
-
-            // 清理旧按钮
-            for (int i = _handCardContainer.childCount - 1; i >= 0; i--)
-            {
-                var child = _handCardContainer.GetChild(i);
-                if (child.name.StartsWith("HC_"))
-                    Destroy(child.gameObject);
-            }
-
-            if (CombatManager.Deck == null || CombatManager.Deck.HandSize == 0) return;
-
-            Font defaultFont = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            for (int i = 0; i < CombatManager.Deck.HandSize; i++)
-            {
-                string cardId = CombatManager.Deck.Hand[i];
-                var card = CardCatalog.Find(cardId);
-                string label = card != null
-                    ? card.DisplayName + " " + card.Cost + "费"
-                    : cardId;
-
-                var go = new GameObject("HC_" + i, typeof(RectTransform), typeof(Image), typeof(Button), typeof(LayoutElement));
-                go.transform.SetParent(_handCardContainer, false);
-
-                var img = go.GetComponent<Image>();
-                img.color = new Color(0.25f, 0.35f, 0.5f);
-
-                var le = go.GetComponent<LayoutElement>();
-                le.minWidth = 120;
-                le.minHeight = 32;
-
-                var textGo = new GameObject("Text", typeof(RectTransform), typeof(Text));
-                textGo.transform.SetParent(go.transform, false);
-
-                var text = textGo.GetComponent<Text>();
-                text.text = label;
-                text.font = defaultFont;
-                text.fontSize = 14;
-                text.alignment = TextAnchor.MiddleCenter;
-                text.color = Color.white;
-                text.raycastTarget = false;
-
-                var textRt = (RectTransform)textGo.transform;
-                textRt.anchorMin = Vector2.zero;
-                textRt.anchorMax = Vector2.one;
-                textRt.sizeDelta = Vector2.zero;
-
-                int index = i;
-                go.GetComponent<Button>().onClick.AddListener(() => OnPlayHandCard(index));
-            }
         }
 
         private void RefreshMapPage()
@@ -974,10 +634,16 @@ namespace OneJourney.Core
 
         private void ShowCampPage(string result)
         {
-            string desc = BuildResourceLine();
-            desc += "\n左侧查看队伍状态；右侧选择营地服务或建筑入口。";
-            if (!string.IsNullOrEmpty(result)) desc += "\n最近结算：" + result;
-            ShowPage("营地整备", desc);
+            if (_campTitleText != null) _campTitleText.text = "营地整备";
+            if (_campResourceText != null) _campResourceText.text = BuildResourceLine();
+            if (_campFeedbackText != null)
+            {
+                _campFeedbackText.text = string.IsNullOrEmpty(result)
+                    ? "左侧查看队伍状态；右侧选择营地服务或建筑入口。"
+                    : "最近结算：" + result;
+            }
+
+            ShowPage("营地整备", string.Empty);
             RefreshCampButtons();
         }
 
@@ -1003,7 +669,6 @@ namespace OneJourney.Core
             ClearChildren(_campTeamContainer);
             ClearChildren(_campFacilityContainer);
             if (_campLayoutRoot != null) _campLayoutRoot.SetActive(true);
-            if (_settlementOptionContainer != null) _settlementOptionContainer.gameObject.SetActive(false);
 
             RenderCampTeamRoster();
 
@@ -1299,38 +964,6 @@ namespace OneJourney.Core
             return view.gameObject;
         }
 
-        private static GameObject MakeCampSimpleButton(Transform parent, TMP_FontAsset font, string label, bool disabled)
-        {
-            var go = new GameObject("CampDynamic_Action_" + label,
-                typeof(RectTransform), typeof(Image), typeof(Button), typeof(LayoutElement));
-            go.transform.SetParent(parent, false);
-            var image = go.GetComponent<Image>();
-            image.color = disabled ? new Color(0.25f, 0.25f, 0.25f) : new Color(0.30f, 0.45f, 0.60f);
-            var button = go.GetComponent<Button>();
-            button.targetGraphic = image;
-            button.interactable = !disabled;
-            var element = go.GetComponent<LayoutElement>();
-            element.minWidth = 520;
-            element.preferredWidth = 520;
-            element.minHeight = 52;
-            element.preferredHeight = 52;
-
-            var textGo = new GameObject("Text", typeof(RectTransform), typeof(TextMeshProUGUI));
-            textGo.transform.SetParent(go.transform, false);
-            var text = textGo.GetComponent<TextMeshProUGUI>();
-            text.text = label;
-            text.font = font;
-            text.fontSize = 18;
-            text.alignment = TextAlignmentOptions.Center;
-            text.color = Color.white;
-            text.raycastTarget = false;
-            var rect = (RectTransform)textGo.transform;
-            rect.anchorMin = Vector2.zero;
-            rect.anchorMax = Vector2.one;
-            rect.sizeDelta = Vector2.zero;
-            return go;
-        }
-
         private void ResolveCampLayoutRefs()
         {
             if (_campOptionContainer == null) return;
@@ -1342,8 +975,6 @@ namespace OneJourney.Core
                 _campFacilityContainer = layout.Find("FacilityPanel/FacilityScroll/Viewport/FacilityGrid");
             if (_campFacilityTitleText == null && layout != null)
                 _campFacilityTitleText = layout.Find("FacilityPanel/Title")?.GetComponent<TMP_Text>();
-            if (_settlementOptionContainer == null && _campOptionContainer.parent != null)
-                _settlementOptionContainer = _campOptionContainer.parent.Find("SettlementActions");
         }
 
         private void ClearChildren(Transform container)

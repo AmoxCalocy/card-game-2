@@ -56,6 +56,7 @@ namespace OneJourney.Core
         private TMP_Text _rewardSkipText;
         private Button _rewardContinueBtn;
         private TMP_Text _rewardContinueText;
+        private Button _rewardMenuButton;
         private readonly List<GameObject> _rewardCardGos = new List<GameObject>();
         private string _rewardStatusText; // 领卡/跳过后显示在明细下
 
@@ -69,7 +70,13 @@ namespace OneJourney.Core
 
         private void Awake()
         {
+            GameConfigProvider.Changed += RefreshTestControls;
             // 按钮绑定延迟到首次 Show 时（因为那时才实例化 Prefab）
+        }
+
+        private void OnDestroy()
+        {
+            GameConfigProvider.Changed -= RefreshTestControls;
         }
 
         public void Show()
@@ -88,6 +95,7 @@ namespace OneJourney.Core
                 if (_simulateVictoryButton != null) _simulateVictoryButton.onClick.AddListener(OnSimulateVictory);
                 if (_simulateDefeatButton != null) _simulateDefeatButton.onClick.AddListener(OnSimulateDefeat);
                 EnsureRewardPanel(canvasTr);
+                RefreshTestControls();
 
                 // 确保 HUD 渲染在最上层
                 var hud = canvasTr.Find("TestHud");
@@ -99,6 +107,7 @@ namespace OneJourney.Core
             _combatWon = false;
             if (_rewardPanel != null) _rewardPanel.SetActive(false);
             _rootPanel.SetActive(true);
+            RefreshTestControls();
             Refresh();
         }
 
@@ -147,7 +156,7 @@ namespace OneJourney.Core
             _endTurnButton = r.Find("TopBar/EndTurnBtn")?.GetComponent<Button>()
                 ?? r.Find("MainArea/EndTurnBtn")?.GetComponent<Button>();
             _returnButton = r.Find("MainArea/RightPanel/ReturnBtn")?.GetComponent<Button>();
-            // 测试入口遭遇翻页（BattlePage 顶部；TestPage 在战斗中隐藏，翻页按钮需在战斗页内）
+            // 测试入口遭遇翻页：BattlePage 顶部按钮仅在测试配置下显示。
             _prevEncounterButton = r.Find("TopBar/Button_PrevEncounter")?.GetComponent<Button>();
             _nextEncounterButton = r.Find("TopBar/Button_NextEncounter")?.GetComponent<Button>();
             _simulateVictoryButton = r.Find("TopBar/Button_SimulateVictory")?.GetComponent<Button>();
@@ -157,6 +166,15 @@ namespace OneJourney.Core
             _handContainer = r.Find("BottomBar/HandCards");
             _drawPileText = r.Find("BottomBar/DrawPile/DrawCount")?.GetComponent<TMP_Text>();
             _discardPileText = r.Find("BottomBar/DiscardPile/DiscardCount")?.GetComponent<TMP_Text>();
+        }
+
+        private void RefreshTestControls()
+        {
+            bool show = GameConfigProvider.TestToolsEnabled;
+            if (_prevEncounterButton != null) _prevEncounterButton.gameObject.SetActive(show);
+            if (_nextEncounterButton != null) _nextEncounterButton.gameObject.SetActive(show);
+            if (_simulateVictoryButton != null) _simulateVictoryButton.gameObject.SetActive(show);
+            if (_simulateDefeatButton != null) _simulateDefeatButton.gameObject.SetActive(show);
         }
 
         private bool _postCombatBuilt;
@@ -234,8 +252,10 @@ namespace OneJourney.Core
             _rewardSkipText = r.Find("BottomBar/SkipBtn/Text")?.GetComponent<TMP_Text>();
             _rewardContinueBtn = r.Find("BottomBar/ContinueBtn")?.GetComponent<Button>();
             _rewardContinueText = r.Find("BottomBar/ContinueBtn/Text")?.GetComponent<TMP_Text>();
+            _rewardMenuButton = r.Find("HeaderPanel/ReturnToMenuButton")?.GetComponent<Button>();
             if (_rewardSkipBtn != null) _rewardSkipBtn.onClick.AddListener(OnRewardSkip);
             if (_rewardContinueBtn != null) _rewardContinueBtn.onClick.AddListener(OnRewardContinue);
+            if (_rewardMenuButton != null) _rewardMenuButton.onClick.AddListener(OnRewardReturnToMenu);
         }
 
         /// <summary>弹出奖励页（战斗胜利后自动调用；模拟胜利等外部路径也可直接调用）。</summary>
@@ -396,7 +416,7 @@ namespace OneJourney.Core
             {
                 if (font != null) costText.font = font;
                 costText.color = new Color(0.97f, 0.78f, 0.34f, 1f);
-                costText.fontStyle = FontStyles.Bold;
+                costText.fontStyle = FontStyles.Normal;
             }
             var nameText = go.transform.Find("Word/CostRow/Name")?.GetComponent<TMP_Text>();
             if (nameText != null)
@@ -404,7 +424,7 @@ namespace OneJourney.Core
                 if (font != null) nameText.font = font;
                 nameText.color = new Color(0.96f, 0.94f, 0.88f, 1f);
                 nameText.fontSize = 20f;
-                nameText.fontStyle = FontStyles.Bold;
+                nameText.fontStyle = FontStyles.Normal;
                 nameText.enableWordWrapping = false;
                 nameText.overflowMode = TextOverflowModes.Ellipsis;
             }
@@ -413,6 +433,7 @@ namespace OneJourney.Core
             {
                 if (font != null) effectText.font = font;
                 effectText.color = new Color(0.78f, 0.81f, 0.86f, 1f);
+                effectText.fontStyle = FontStyles.Normal;
             }
 
             var button = go.GetComponent<Button>();
@@ -517,6 +538,13 @@ namespace OneJourney.Core
             _rewardStatusText = "已放弃剩余奖励";
             _postCombatBuilt = false;
             StartCoroutine(RebuildPostCombatNextFrame());
+        }
+
+        private void OnRewardReturnToMenu()
+        {
+            Hide();
+            var ui = FindObjectOfType<GameUi>();
+            if (ui != null) ui.ReturnToMenu();
         }
 
         private void OnRewardContinue()
@@ -710,20 +738,21 @@ namespace OneJourney.Core
             {
                 if (uiFont != null) costText.font = uiFont;
                 costText.color = new Color(0.97f, 0.78f, 0.34f, 1f);
-                costText.fontStyle = FontStyles.Bold;
+                costText.fontStyle = FontStyles.Normal;
             }
             var cardNameText = go.transform.Find("Word/CostRow/Name")?.GetComponent<TMP_Text>();
             if (cardNameText != null)
             {
                 if (uiFont != null) cardNameText.font = uiFont;
                 cardNameText.color = new Color(0.96f, 0.94f, 0.88f, 1f);
-                cardNameText.fontStyle = FontStyles.Bold;
+                cardNameText.fontStyle = FontStyles.Normal;
             }
             var effectText = go.transform.Find("Word/Effect")?.GetComponent<TMP_Text>();
             if (effectText != null)
             {
                 if (uiFont != null) effectText.font = uiFont;
                 effectText.color = new Color(0.76f, 0.79f, 0.84f, 1f);
+                effectText.fontStyle = FontStyles.Normal;
             }
 
             var btn = go.GetComponent<Button>();

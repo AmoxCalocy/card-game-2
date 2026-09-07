@@ -31,6 +31,18 @@ namespace OneJourney.Tests.EditMode
             Assert.AreEqual(GameMode.Release, GameConfigProvider.Active.Mode);
             Assert.IsFalse(GameConfigProvider.Active.ShowTestHud);
             Assert.IsFalse(GameConfigProvider.Active.EnableTestEntries);
+            Assert.IsFalse(GameConfigProvider.TestToolsEnabled);
+        }
+
+        [Test]
+        public void ApplyMode_Testing_EnablesTestTools()
+        {
+            GameConfigProvider.ApplyMode(GameMode.Testing);
+
+            Assert.AreEqual(GameMode.Testing, GameConfigProvider.Mode);
+            Assert.IsTrue(GameConfigProvider.Active.ShowTestHud);
+            Assert.IsTrue(GameConfigProvider.Active.EnableTestEntries);
+            Assert.IsTrue(GameConfigProvider.TestToolsEnabled);
         }
     }
 }

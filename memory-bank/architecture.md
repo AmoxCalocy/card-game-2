@@ -4,7 +4,7 @@ injectMode: inherit
 aiEditMode: inherit
 ---
 
-# 架构与文件职责（截至 2026-09-02）
+# 架构与文件职责（截至 2026-09-07）
 
 ## 目录与程序集
 - `Assets/Scripts/Core/` — 核心运行时逻辑（程序集 OneJourney.Core，无外部引用）。
@@ -12,13 +12,14 @@ aiEditMode: inherit
 
 ## 运行时入口与场景
 - `GameBootstrap.cs` — `[RuntimeInitializeOnLoadMethod(BeforeSceneLoad)]`：依次初始化 `GameConfigProvider`、`ContentRegistry.LoadAll()`、`RunSession.Reset()` 与 `CampaignSaveService.Initialize()`。**不创建 UI**——UI 由场景承载（MVP 单场景，UI 不跨场景存活）。
-- `Assets/Scenes/SampleScene.unity` — 唯一主场景：Main Camera + GameUi 层级（GameUi / Canvas / TestHud / MainMenu / TestPage / EventSystem）；MainMenu 内含场景化「新游戏 / 继续游戏 / 存档状态」控件；Canvas 下的 `CampOptions`、`FailurePage` 为 Prefab 实例，`SettlementActions` 为独立胜利结算按钮区；TestPage 内含 `MapPage` 与 `EventPage` Prefab 实例。引用均由 `GameUi` 序列化持有；`FailurePage` 作为 Canvas 直属全屏覆盖层，不受 TestPage 纵向布局影响。
+- `Assets/Scenes/SampleScene.unity` — 唯一主场景：Main Camera + GameUi 根对象（`GameUi` / `BattleView`）+ Canvas + EventSystem。Canvas 的静态子对象仅有 `MainMenu`、`MapPage`、`EventPage`、`CampOptions`、`VictoryPage`、`FailurePage`、`TestHud` 七个 Prefab 实例；`BattlePage` 与 `RewardPage` 由 `BattleView` 运行时从 Prefab 实例化。场景不再包含旧 `TestPage`、`SettlementActions` 或根级种子控件。
 
 ## 配置系统
 - `GameMode.cs` — 枚举 Development / Testing / Release。
 - `GameConfig.cs` — ScriptableObject：`_mode`、`_showTestHud`、`_enableTestEntries`；静态工厂 `Create(mode, showTestHud, enableTestEntries)`。
-- `GameConfigProvider.cs` — 静态提供者：按启动参数（`-releaseMode` 锁定、`-testMode`）或 `Application.isEditor` 决定启动模式；从 `Resources/Configs/GameConfig_<Mode>.asset` 加载，缺失时回退 `GameConfig.Create` 默认值并打警告；`IsReleaseLocked` 时忽略非 Release 切换。
+- `GameConfigProvider.cs` — 静态提供者：`Initialize` 按优先级选择启动模式（`-releaseMode` 锁定 Release、`-testMode` 进入 Testing、Editor 默认 Development、普通独立 Player 默认 Release）；从 `Resources/Configs/GameConfig_<Mode>.asset` 加载，缺失时按模式创建回退配置。`TestToolsEnabled = Active.EnableTestEntries && Mode != Release` 是所有测试 UI 的统一门禁；Release 回退配置也同时关闭 HUD 与测试入口。
 - `Assets/Data/Resources/Configs/GameConfig_{Development,Testing,Release}.asset` — 三套配置资产（Release：HUD 与测试入口均隐藏；开发/测试：均开启）。
+- `GameConfigProviderTests.cs` — 验证 Release 配置关闭 `TestToolsEnabled`，Testing 配置开启统一测试门禁。
 
 ## 会话与流程
 - `GameFlow.cs` — 流程状态机：`CurrentState`（唯一状态源）、11 状态转移表（`IsAllowed`）、`TryTransition(to, reason)`（非法转移拒绝且无副作用并打警告）、状态日志 `Log`（上限 100 条，`LastTransition` 取最新）、`Reset` 清空日志、`Changed` 事件；A3-25 的 `RestoreSafeState` 仅允许读档恢复到 Map/Move/Camp，绕过普通转移表但仍重建一条可读恢复日志。`GameState` 枚举值：None/MainMenu/Combat/Map/Event/Camp/NewGame/Move/Reward/Victory/Defeat/Settlement（新状态为追加，旧值不变）。
@@ -58,7 +59,7 @@ aiEditMode: inherit
 - `CombatDeck.cs` — 战斗独立牌堆：`DrawPile`/`Hand`/`DiscardPile`/`ExhaustZone`；`InitFromCampaign`（复制+洗牌）、`DrawToHand`（空堆洗回/手牌上限）、`DiscardHand`（临时卡 `TEMP_` 前缀→消耗区，普通卡→弃牌堆）、`ExhaustFromHand`/`DiscardFromHand`、`Clone`。
 - `CombatManager.cs` — 战斗生命周期 + 回合结构 + 敌人行动：`Phase`/`TurnPhase`/`TurnNumber`/`Energy`（MaxEnergy=3 每回合重置）；`Morale`/`MoraleUsedThisTurn`/`Plunder`；`PendingBonusDraw`（下回合额外抽牌）/`CostReductionRemaining`（本回合减费）；`RevealEnemyIntents`（BeginPlayerTurn 揭示敌人意图供玩家规划）、`ExecuteEnemyActions`（攻击/全体攻击/防御/掠夺四类执行，行动前重验目标存活，无目标默认跳过；支持 `TargetsPlayer` 诱饵定向）、`PickDefaultTarget`（生命百分比最低，平局主角优先）、`PlayerCharacter()`（获取存活主角）；`CanPlayerAct`/`CanSpendEnergy`/`SpendEnergy`/`RefundEnergy`；`ForceDefeat`/`End`。
 - `CombatDeckTests.cs` — 13 个 EditMode 用例：副本独立/洗牌确定/同种子同序/弃牌堆洗回/两堆皆空/手牌上限/弃手牌/消耗/弃单张/Clone/临时卡隔离。
-- `CombatResolver.cs` — 目标选择与伤害结算：`ResolveTargets`（六种 TargetType，仅存活单位，无目标 out issue）、`ApplyDamage`（护甲吸收→生命→死亡→CheckEndCondition，返回可读结算文本；接入士气和集火标记）、`PlayCard(int handIndex, CombatUnit selectedTarget)`（完整出牌管线：费用校验→目标解析→移除手牌→`ApplyEffect` 分发 28 种效果→弃牌/消耗→结束检查）、`PlayTestCard`（已标记 Obsolete，剩余引用来自旧测试按钮）。
+- `CombatResolver.cs` — 目标选择与伤害结算：`ResolveTargets`（六种 TargetType，仅存活单位，无目标 out issue）、`ApplyDamage`（护甲吸收→生命→死亡→CheckEndCondition，返回可读结算文本；接入士气和集火标记）、`PlayCard(int handIndex, CombatUnit selectedTarget)`（完整出牌管线：费用校验→目标解析→移除手牌→`ApplyEffect` 分发 28 种效果→弃牌/消耗→结束检查）、`PlayTestCard`（保留为 Obsolete 测试兼容入口；`GameUi` 已不再绑定旧 TestPage 调试按钮）。
 - `CombatResolverTests.cs` — 18 个 EditMode 用例：目标范围/死亡排除/无目标报错/护甲恰好吸收/伤害多1/单体只伤一个/全体伤全部/批内击杀胜利/批内跳过死目标/能量不足/无目标退款。
 - `CombatStatus.cs` — 状态规则统一入口：上限常量（流血 5/士气 3/疾病 3/疲劳 3/护甲 30）、每层效果（疾病 -4 最大生命/疲劳 -5 护甲上限 -1 指令伤害/士气 +2 伤害）、施加叠加（钳上限、不作用于死亡单位、疾病钳当前生命、疲劳钳护甲）、移除、`TriggerTurnStartBleed`（真实伤害=层数，伤害后 -1，致死触发结束检查）、`TriggerTeamTurnStartBleed`。
 - `CombatStatusTests.cs` — 16 个 EditMode 用例：流血叠加/真实伤害/衰减/致死/死亡不施加/疾病上限钳制/疲劳上限钳制/士气加成重置/多状态共存顺序。
@@ -76,7 +77,7 @@ aiEditMode: inherit
 - `RegionMap.cs` — 区域节点地图：`RegionMapNode`（Id/Layer/Type/EnemyPoolIds/EventPoolIds/NextIndexes）+ 静态管理器 `RegionMap`：`Generate(region, rng)` 支持草原与密林（配置表 §9：L1 战斗/事件/营地、L2 战斗/事件/精英、L3 战斗/事件/营地、L4 首领；草原敌人池 EN01/02/04+EN03+EN05 事件 E01-E10，密林 EN06/07/09+EN08+EN10 事件 E11-E20；层内随机、连通性保证：上下层出入度≥1、第三层全连首领、无回退）、`TryMoveTo`（下一层/相连/未访问三查）、`ReachableNext`（UI 高亮）、`Clear`、`Region`（当前区域）；A3-25 的 `CaptureSaveData`/`RestoreSaveData` 直接保存并恢复节点顺序、内容池、连接、当前位置、访问集合和路径，不依赖重新生成地图。
 
 ## 地图界面 Prefab（2026-09-02 优化）
-- `Assets/Prefabs/MapPage.prefab` / `MapPageView.cs` — 区域地图页面与展示控制器：顶部绑定区域标题、层数进度、四资源和风险提示；路线区按 `RegionMapNode.Layer` 计算节点坐标，实例化节点与连接线，区分已走路径、当前可达路线和未来路线；页面不保存地图规则状态。
+- `Assets/Prefabs/MapPage.prefab` / `MapPageView.cs` — 区域地图页面与展示控制器：顶部绑定区域标题、层数进度、四资源、风险提示及 `ReturnToMenuButton`；路线区按 `RegionMapNode.Layer` 计算节点坐标，实例化节点与连接线，区分已走路径、当前可达路线和未来路线；页面不保存地图规则状态。
 - `Assets/Prefabs/MapNode.prefab` / `MapNodeView.cs` — 单个地图节点模板与视觉状态组件：未来/可达/当前/已访问四态，节点类型徽标、层数和状态文字；只有可达节点可交互，首次点击进入选中态，第二次点击通过回调交给 `GameUi.OnMapNodeClicked` 执行领域移动。
 - `GameUi.RefreshMapPage` — `GameUi` 与地图 View 的适配层：传入 `RegionMap.Nodes/Path/VisitedIndexes/ReachableNext`、当前资源与风险文本；旧 `MapNodes` 纵向按钮生成逻辑已删除，地图规则仍全部归 `RegionMap`/`RunSession`。
 
@@ -98,37 +99,37 @@ aiEditMode: inherit
 - 资源钳制：事件与移动结算统一用 `Clamp` 保证粮 0-30/财 0-999/声望 0-100/建材 0-99/风险 0-10 不为负；招募伙伴已招募→忠诚 +10、阵亡→选项禁用（配置表 §6 通用规则）。
 - `EventTests.cs` — 59 个 EditMode 用例：目录完整性/每选项结算/条件不满足/事件战斗胜利与失败/卡牌与状态子选择/忠诚规则/资源钳制；含 E10/E14 无合法状态目标时拒绝且不进入空子选择的回归覆盖。
 
-## UI 结构（场景组件化 + Prefab 驱动）
-- `GameUi.cs` — 场景 UI 总协调器：持有主菜单、HUD、测试页、`MapPageView`、`EventPageView`、`FailurePageView`、`BattleView`、营地与结算引用；负责页面显隐、测试入口、地图/事件/营地/战斗/奖励/结算分流以及把领域数据传给各 View。失败结算单独调用 `FailurePageView.SetFailure`，其“开始新游戏”路径先 `RunSession.Reset` 再 `StartNewGame`；胜利结算保持原摘要流程。A3-25 的继续游戏按恢复结果显示 Map/Event/Camp/Combat。
-- `BattleView.cs` — 战斗与奖励页面控制器：实例化 `BattlePage.prefab`，管理单位卡、敌人卡和 `HandCard.prefab` 手牌，处理出牌/选目标/结束回合；运行时只覆写数据与视觉状态，不改布局。`ShowRewardPage` 绑定资源总览、卡牌/遗物独立区、两阶段领取、放弃剩余奖励、完成提示与继续分流；奖励卡直接实例化同一个 `HandCard.prefab`，不覆盖 RectTransform/LayoutElement。
-- `FailurePageView.cs` — 失败页展示绑定器：将 `SettlementSummary` 的原因、区域进度、用时和种子写入 Prefab，并重绑“开始新游戏”回调；不参与胜负判定或结算快照生成。
-- HUD（TestHud，尺寸 680×300）：7 行文本——随机种子 / 当前状态 / 当前配置 / 最近一次规则结算 / 最近状态切换（最近 3 条）/ 内容校验状态（OK 或 N 个问题+首个）/ 本局记录（N 条+最新类别 #序号）。
-- Canvas：ScreenSpaceOverlay + CanvasScaler（1920×1080，match 0.5）。**子对象顺序即渲染顺序**；BattlePage/RewardPage 为运行时全屏实例，FailurePage 为场景内 Canvas 直属全屏 Prefab 实例，TestHud 在开发/测试配置下保持顶层。
-- MainMenu：ScrollRect + Viewport(RectMask2D) + Content(VerticalLayoutGroup)，场景内固定「新游戏 / 继续游戏 / 存档状态 / 测试入口 / 运行配置 / 退出」，增删按钮自动重排。
-- TestPage：旧版通用页面容器；地图状态显示 `MapPage`，事件状态显示 `EventPage`；战斗中隐藏并由 `BattleView` 替代。失败页不挂在 TestPage 下，避免 VerticalLayoutGroup 改变画面中心。
+## UI 结构（全 Prefab 页面路由，2026-09-07）
+- `GameUi.cs` — 页面路由总协调器：序列化持有主菜单、地图、事件、营地、胜利、失败与 `BattleView` 引用；`ResolvePrefabPageRefs` 从各 Prefab 固定路径解析导航控件，`BindButtons` 连接业务回调，`ShowPage` 只按 `GameState` 激活对应页面，`ReturnToMenu` 统一先 `RunSession.Reset()`。继续游戏仍按 Map/Event/Camp/Combat 恢复结果分流。旧 TestPage 调试战斗按钮、旧手牌生成、动态胜利按钮和非 Prefab 页面依赖均已删除。
+- `Assets/Prefabs/MainMenu.prefab` — 主菜单唯一模板：ScrollRect + Viewport + Content，包含新游戏、继续游戏、存档状态、测试入口、指定种子、模式切换和退出；测试项由 `GameConfigProvider.TestToolsEnabled` 控制，指定种子控件不再游离在 Canvas 根级。
+- `Assets/Prefabs/TestHud.prefab` — 开发/测试诊断 HUD：显示随机种子、状态、配置、最近结算/状态切换、内容校验与本局记录；Release 隐藏，且不参与正式页面布局。
+- `Assets/Prefabs/VictoryPage.prefab` — Canvas 直属全屏胜利结算页：中央 `VictoryCard` 显示结算原因、区域、用时、牌组、伙伴、资源、建筑、遗物和种子，提供“返回主菜单 / 同种子重开”；文本由 `GameUi.SetVictoryPage` 写入。
+- `BattleView.cs` — 战斗与奖励运行时页面控制器：实例化 `BattlePage.prefab`、`RewardPage.prefab` 及单位/卡牌/遗物条目；绑定战斗和奖励页返回主菜单、继续旅程及测试按钮。监听 `GameConfigProvider.Changed`，只在 Development/Testing 显示上一组、下一组和模拟胜负。
+- `FailurePageView.cs` — 失败页展示绑定器：将 `SettlementSummary` 的原因、区域进度、用时和种子写入 Prefab，并重绑“开始新游戏”；“返回主菜单”由 `GameUi` 统一绑定。
+- Canvas：ScreenSpaceOverlay + CanvasScaler（1920×1080，match 0.5）。静态页面子对象全部是 Prefab 实例；子对象顺序仍决定渲染顺序，`BattlePage`/`RewardPage` 是运行时全屏实例，`TestHud` 在开发/测试配置下保持顶层。
 - EventSystem：EventSystem + StandaloneInputModule（Legacy Input）。
 
 ## 营地界面 Prefab（2026-09-01 优化）
-- `Assets/Prefabs/CampOptions.prefab` — 左队伍、右设施的双栏营地面板，两个区域均可滚动；只包含营地内容，结算按钮由场景独立 `SettlementActions` 承载。
+- `Assets/Prefabs/CampOptions.prefab` — `1680×900` Canvas 直属营地页：`HeaderPanel` 展示标题、四资源、最近结算/操作提示及 `ReturnToMenuButton`；下方 `CampLayout` 保持左队伍、右设施的双栏滚动结构。胜利结算已迁至独立 `VictoryPage.prefab`，不再存在 `SettlementActions`。
 - `Assets/Prefabs/CampTeamCard.prefab` / `CampTeamCardView.cs` — 伙伴卡模板与绑定组件：头像占位、姓名、编队位置/定位、HP/忠诚、疲劳/疾病、主/次操作按钮；同一模板渲染主角与所有已招募伙伴。
 - `Assets/Prefabs/CampFacilityCard.prefab` / `CampFacilityCardView.cs` — 设施卡模板与绑定组件：图标占位、名称、成本/条件/效果、禁用状态与点击入口；篝火、牌组、建筑、遗物服务和离开入口共用。
-- 营地及独立结算动态文字统一为 `TextMeshProUGUI`，字体固定为 `Assets/Fonts/SIMHEI SDF.asset`；后期美术只需替换 Prefab 的 Portrait/Icon/背景，无需修改业务逻辑。
+- 营地动态文字统一为 `TextMeshProUGUI`，字体固定为 `Assets/Fonts/SIMHEI SDF.asset`；后期美术只需替换 Prefab 的 Portrait/Icon/背景，无需修改业务逻辑。
 
 ## 事件界面 Prefab（2026-09-01 优化）
-- `Assets/Prefabs/EventPage.prefab` / `EventPageView.cs` — 三栏事件页面：左侧插画占位和区域/类别/ID，中间标题、叙事、资源和流程提示，右侧滚动选项列表；按事件类别切换占位色，后期可直接替换 Artwork。
+- `Assets/Prefabs/EventPage.prefab` / `EventPageView.cs` — 三栏事件页面：左侧插画占位和区域/类别/ID，中间标题、叙事、资源和流程提示，右侧滚动选项列表；`OptionsPanel/ReturnToMenuButton` 是正式导航，`OptionsPanel/TestControls` 内的上一组/下一组仅 Development/Testing 显示；按事件类别切换占位色，后期可直接替换 Artwork。
 - `Assets/Prefabs/EventOptionCard.prefab` / `EventOptionCardView.cs` — 可复用选项卡：角色/类型徽标、选项名称、条件或成本、预期结果、锁定原因和交互状态；普通选项、伙伴条件、事件战斗、卡牌子选择和状态治疗均使用同一模板。
-- `EventPageView` 只负责展示和实例化选项卡；条件判定与结算仍归 `RunSession`，`GameUi` 负责把按钮回调连接到 `ChooseEventOption`/`ChooseEventCard`/`ChooseEventStatusUnit`。
+- `EventPageView` 只负责展示和实例化选项卡；条件判定与结算仍归 `RunSession`，`GameUi` 负责把选项及测试翻页回调连接到 `ChooseEventOption`/`ChooseEventCard`/`ChooseEventStatusUnit`/`PrevEvent`/`NextEvent`。
 
 ## 失败界面 Prefab（2026-09-02 优化）
-- `Assets/Prefabs/FailurePage.prefab` / `FailurePageView.cs` — Canvas 直属全屏失败页：中央 `FailureCard` 显示图标、标题、失败原因、区域/用时/种子，底部“开始新游戏”按钮；全屏锚点确保卡片中心与 Canvas 中心一致。只服务失败结算，胜利结算不复用该 Prefab。
+- `Assets/Prefabs/FailurePage.prefab` / `FailurePageView.cs` — Canvas 直属全屏失败页：中央 `FailureCard` 显示图标、标题、失败原因、区域/用时/种子；底部“返回主菜单 / 开始新游戏”并排，其中开始新游戏先清理旧会话再进入随机新局。只服务失败结算，胜利结算由 `VictoryPage.prefab` 承载。
 
 ## 战斗与奖励界面 Prefab（2026-09-02 优化）
-- `Assets/Prefabs/BattlePage.prefab` — 保持既有五区块 RectTransform：TopBar（TurnInfo/Energy/Morale/Plunder + 测试按钮）/ MainArea（TeamPanel/EnemyPanel/RightPanel/EndTurnBtn）/ BottomBar（DrawPile/HandCards/DiscardPile）；视觉统一为深色背景、金色主操作、友方蓝与敌方红边框。
-- `Assets/Prefabs/UnitCard.prefab` / `Assets/Prefabs/EnemyCard.prefab` — 结构相同的单位卡模板（TopBar/Name/HP/Status/Intent），分别提供友方与敌方基线样式；`BattleView.CreateUnitCard` 写入实时数据并在选目标模式追加金色高亮。
-- `Assets/Prefabs/HandCard.prefab` — 战斗手牌与奖励卡共享的唯一卡牌模板：固定 `200×300`、缩放 1，TopBar / CostRow(Cost/Name) / Effect。`BattleView.CreateHandCard` 与 `CreateRewardCard` 都直接实例化该 Prefab；奖励路径仅改文本/颜色/回调，不覆盖 RectTransform 或 LayoutElement。
-- `Assets/Prefabs/RewardPage.prefab` — 独立奖励页：`HeaderPanel`（胜利标题、资源入账与当前资源）/ `Content/CardSection/CardOptions`（3 张卡选 1）/ `Content/RelicSection/RelicOptions`（精英/首领遗物选 1）/ `CompletionMessage` / `BottomBar`（放弃剩余奖励、继续旅程）。两个选项容器均带 Image/CanvasRenderer，运行时条目可稳定渲染，无需挂根节点手动坐标。
+- `Assets/Prefabs/BattlePage.prefab` — 保持既有五区块 RectTransform：TopBar（TurnInfo/Energy/Morale/Plunder + 测试按钮）/ MainArea（TeamPanel/EnemyPanel/RightPanel/EndTurnBtn）/ BottomBar（DrawPile/HandCards/DiscardPile）；`RightPanel/ReturnBtn` 是正式返回主菜单入口，TopBar 的上一组/下一组/模拟胜负仅测试配置显示。视觉统一为深色背景、金色主操作、友方蓝与敌方红边框。
+- `Assets/Prefabs/UnitCard.prefab` / `Assets/Prefabs/EnemyCard.prefab` — 结构相同的单位卡模板（TopBar/Name/HP/Status/Intent），分别提供友方与敌方基线样式；`BattleView.CreateUnitCard` 写入实时数据并在选目标模式追加金色高亮。`EnemyCard/Intent` 固定为 `FontStyles.Normal + FontWeight.Regular`，运行时敌人意图不加粗。
+- `Assets/Prefabs/HandCard.prefab` — 战斗手牌与奖励卡共享的唯一卡牌模板：固定 `200×300`、缩放 1，TopBar / CostRow(Cost/Name) / Effect。费用、名称和效果均使用 `FontStyles.Normal`；`BattleView.CreateHandCard` 与 `CreateRewardCard` 运行时再次强制普通字重。奖励路径仅改文本/颜色/回调，不覆盖 RectTransform 或 LayoutElement。
+- `Assets/Prefabs/RewardPage.prefab` — 独立奖励页：`HeaderPanel`（胜利标题、资源入账、当前资源、`ReturnToMenuButton`）/ `Content/CardSection/CardOptions`（3 张卡选 1）/ `Content/RelicSection/RelicOptions`（精英/首领遗物选 1）/ `CompletionMessage` / `BottomBar`（放弃剩余奖励、继续旅程）。两个选项容器均带 Image/CanvasRenderer，运行时条目可稳定渲染。
 - `Assets/Prefabs/RelicReward.prefab` — `280×124` 横向金色遗物槽：图标占位、名称、效果与首领专属标签；只由奖励页实例化。
-- `BattleView.ShowRewardPage` — 保留 `RewardResolver` 全局混合索引，分别将卡牌/遗物放入独立容器；领卡后遗物区自动居中，全部处理后隐藏选项区并显示完成提示。卡牌类别标签按 C01-C40 目录段映射为攻击/防御/策略/战术/后勤，稀有度只作展示，不改奖励规则。
+- `BattleView.ShowRewardPage` — 保留 `RewardResolver` 全局混合索引，分别将卡牌/遗物放入独立容器；领卡后遗物区自动居中，全部处理后隐藏选项区并显示完成提示。卡牌类别标签按 C01-C40 目录段映射为攻击/防御/策略/战术/后勤，稀有度只作展示，不改奖励规则；返回主菜单会关闭战斗/奖励运行时实例并交给 `GameUi.ReturnToMenu` 清理会话。
 
 ## 事件流
 - `RunSession.Changed` / `GameFlow.Changed` → `GameUi.Refresh()`（HUD：种子/状态/配置/最近结算/最近状态切换）；`GameConfigProvider.Changed` → `GameUi.RefreshConfigUi()`；`CampaignSaveService.Changed` → `GameUi.RefreshSaveUi()`（继续按钮可用性与明确存档状态）。
