@@ -1453,6 +1453,7 @@ namespace OneJourney.Core
             }
 
             RecordResolution("存档", "继续游戏", message);
+            RunRecord.Log(RecordCategory.General, "继续游戏：" + message);
             return true;
         }
 

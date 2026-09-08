@@ -8,6 +8,7 @@ namespace OneJourney.Core
         private static void Initialize()
         {
             GameConfigProvider.Initialize();
+            TutorialProgressService.Initialize();
             ContentRegistry.LoadAll();
             RunSession.Reset();
             CampaignSaveService.Initialize();

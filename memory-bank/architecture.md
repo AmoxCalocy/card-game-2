@@ -11,8 +11,8 @@ aiEditMode: inherit
 - `Assets/Tests/EditMode/` — EditMode 测试（OneJourney.EditModeTests.asmdef，NUnit 风格）。
 
 ## 运行时入口与场景
-- `GameBootstrap.cs` — `[RuntimeInitializeOnLoadMethod(BeforeSceneLoad)]`：依次初始化 `GameConfigProvider`、`ContentRegistry.LoadAll()`、`RunSession.Reset()` 与 `CampaignSaveService.Initialize()`。**不创建 UI**——UI 由场景承载（MVP 单场景，UI 不跨场景存活）。
-- `Assets/Scenes/SampleScene.unity` — 唯一主场景：Main Camera + GameUi 根对象（`GameUi` / `BattleView`）+ Canvas + EventSystem。Canvas 的静态子对象仅有 `MainMenu`、`MapPage`、`EventPage`、`CampOptions`、`VictoryPage`、`FailurePage`、`TestHud` 七个 Prefab 实例；`BattlePage` 与 `RewardPage` 由 `BattleView` 运行时从 Prefab 实例化。场景不再包含旧 `TestPage`、`SettlementActions` 或根级种子控件。
+- `GameBootstrap.cs` — `[RuntimeInitializeOnLoadMethod(BeforeSceneLoad)]`：依次初始化 `GameConfigProvider`、`TutorialProgressService`、`ContentRegistry.LoadAll()`、`RunSession.Reset()` 与 `CampaignSaveService.Initialize()`。**不创建 UI**——UI 由场景承载（MVP 单场景，UI 不跨场景存活）。
+- `Assets/Scenes/SampleScene.unity` — 唯一主场景：Main Camera + GameUi 根对象（`GameUi` / `BattleView` / `TutorialCoordinator`）+ Canvas + EventSystem。Canvas 的静态子对象有 `MainMenu`、`MapPage`、`EventPage`、`CampOptions`、`VictoryPage`、`FailurePage`、`TestHud`、`TutorialOverlay`、`HelpPage` 九个 Prefab 实例；`BattlePage` 与 `RewardPage` 由 `BattleView` 运行时从 Prefab 实例化。场景不包含旧 `TestPage`、`SettlementActions` 或根级种子控件。
 
 ## 配置系统
 - `GameMode.cs` — 枚举 Development / Testing / Release。
@@ -27,7 +27,7 @@ aiEditMode: inherit
 - 战役状态（A2-18）：`Food`/`Wealth`/`Reputation`/`Materials`（起始资源）、`Risk`（0-10 区域风险）、`PlayerFatigue`（主角战役疲劳）、`AmbushPending`（危机伏击标记）；`TryMoveToNode(nodeIndex)`（移动结算：Map→Move 状态转移（幂等）→粮食消耗（草原 1/密林 2）→不足惩罚（粮归 0/主角疲劳 +1/风险 +2）→风险增长（基础 +1/+2、精英额外 +1）→阈值 10 重置 5 并标记伏击，返回可读文本，拒绝时资源不变）；`SyncPlayerFromCombat`（胜利回写主角疲劳+疾病）；测试辅助 `SetFoodForTest`/`SetRiskForTest`/`SetWealthForTest`/`SetReputationForTest`/`SetMaterialsForTest`/`SetPlayerFatigueForTest`/`SetPlayerDiseaseForTest`。
 - 节点战斗与区域切换（A2-23）：`StartNodeCombat(node)`（战斗/精英/首领节点按种子抽敌人→进入战斗，遭遇类型 Normal/Elite/Boss，伏击优先；**状态转移失败检查**，失败 End+return false）、`StartAmbushCombat`（§9.1：草原 EN01+EN02 / 密林 EN06+EN08，按精英奖励结算）、`AdvanceToNextRegion`（草原首领胜利→密林：保留牌组/伙伴/资源/遗物/建筑，重置风险与区域级一次性标记，Combat→Reward）、`RegionDisplayName()`（奖励区域池）。
 - 结局与结算（A2-24）：`SettlementSummary`（结果/原因/用时/区域进度/最终牌组/伙伴/资源/建筑/遗物/种子）+ `LastSettlement` 快照 + `EnterSettlement(victory, reason)`（Victory/Defeat→Settlement）+ `EnterVictoryState`（密林首领胜利）/`EnterDefeatState`（主角死亡）/`EnterRewardState`（普通/精英胜利）+ `MarkSessionStart`（会话计时）+ `RegionMapRegion`；胜利分支统一状态转移（首领密林→Victory、草原→切区域、普通/精英→Reward，修复战斗胜利后状态残留 Combat）；A3-25 起进入结算时先清理战斗临时态并删除活动存档，避免结局后继续到旧检查点。
-- 存档协调（A3-25，`RunSession.cs` 内）：`CanCaptureCheckpoint`/`CaptureSaveData`/`TryRestoreFromSaveData` 负责把各静态系统聚合为完整战役快照并在全量校验后一次性恢复；`TryContinue` 按 Map/NodeEntry/Camp 分流，`CompleteRewardAndReturnToMap` 保证奖励完成→清战斗→回地图→存档的顺序；`EventFlags` 保存已完成事件 ID。自动存档调用只放在明确的领域完成点，不订阅通用 `Changed` 事件。
+- 存档协调（A3-25，`RunSession.cs` 内）：`CanCaptureCheckpoint`/`CaptureSaveData`/`TryRestoreFromSaveData` 负责把各静态系统聚合为完整战役快照并在全量校验后一次性恢复；`TryContinue` 按 Map/NodeEntry/Camp 分流，成功后同时写入页面结算记录和 `RunRecord` 的“继续游戏”一般记录；`CompleteRewardAndReturnToMap` 保证奖励完成→清战斗→回地图→存档的顺序；`EventFlags` 保存已完成事件 ID。自动存档调用只放在明确的领域完成点，不订阅通用 `Changed` 事件。
 - `GameStartParameters.cs` — 第一版起始参数与全局规则常量（唯一代码来源，对应《MVP 配置表》）：主角 45 血/6 指令伤害、上阵 4 人、牌组 10–30、手牌 3/1/5、能量 3、起始资源（粮 14 财 30 声望 0 建材 0）、粮食不足惩罚（+1 疲劳、风险 +2）、风险常量（阈值 10、危机后重置 5、草原/密林移动 +1/+2、精英额外 +1、营地结算 -2）、起始牌组 10 张（C01×4、C09×3、C17、C33、C36）、垂直切片目标 EN10。
 
 ## 内容系统
@@ -77,7 +77,7 @@ aiEditMode: inherit
 - `RegionMap.cs` — 区域节点地图：`RegionMapNode`（Id/Layer/Type/EnemyPoolIds/EventPoolIds/NextIndexes）+ 静态管理器 `RegionMap`：`Generate(region, rng)` 支持草原与密林（配置表 §9：L1 战斗/事件/营地、L2 战斗/事件/精英、L3 战斗/事件/营地、L4 首领；草原敌人池 EN01/02/04+EN03+EN05 事件 E01-E10，密林 EN06/07/09+EN08+EN10 事件 E11-E20；层内随机、连通性保证：上下层出入度≥1、第三层全连首领、无回退）、`TryMoveTo`（下一层/相连/未访问三查）、`ReachableNext`（UI 高亮）、`Clear`、`Region`（当前区域）；A3-25 的 `CaptureSaveData`/`RestoreSaveData` 直接保存并恢复节点顺序、内容池、连接、当前位置、访问集合和路径，不依赖重新生成地图。
 
 ## 地图界面 Prefab（2026-09-02 优化）
-- `Assets/Prefabs/MapPage.prefab` / `MapPageView.cs` — 区域地图页面与展示控制器：顶部绑定区域标题、层数进度、四资源、风险提示及 `ReturnToMenuButton`；路线区按 `RegionMapNode.Layer` 计算节点坐标，实例化节点与连接线，区分已走路径、当前可达路线和未来路线；页面不保存地图规则状态。
+- `Assets/Prefabs/MapPage.prefab` / `MapPageView.cs` — 区域地图页面与展示控制器：顶部绑定区域标题、层数进度、四资源、风险提示、`HelpButton` 与 `ReturnToMenuButton`；路线区按 `RegionMapNode.Layer` 计算节点坐标，实例化节点与连接线，区分已走路径、当前可达路线和未来路线；页面不保存地图规则状态。
 - `Assets/Prefabs/MapNode.prefab` / `MapNodeView.cs` — 单个地图节点模板与视觉状态组件：未来/可达/当前/已访问四态，节点类型徽标、层数和状态文字；只有可达节点可交互，首次点击进入选中态，第二次点击通过回调交给 `GameUi.OnMapNodeClicked` 执行领域移动。
 - `GameUi.RefreshMapPage` — `GameUi` 与地图 View 的适配层：传入 `RegionMap.Nodes/Path/VisitedIndexes/ReachableNext`、当前资源与风险文本；旧 `MapNodes` 纵向按钮生成逻辑已删除，地图规则仍全部归 `RegionMap`/`RunSession`。
 
@@ -99,38 +99,47 @@ aiEditMode: inherit
 - 资源钳制：事件与移动结算统一用 `Clamp` 保证粮 0-30/财 0-999/声望 0-100/建材 0-99/风险 0-10 不为负；招募伙伴已招募→忠诚 +10、阵亡→选项禁用（配置表 §6 通用规则）。
 - `EventTests.cs` — 59 个 EditMode 用例：目录完整性/每选项结算/条件不满足/事件战斗胜利与失败/卡牌与状态子选择/忠诚规则/资源钳制；含 E10/E14 无合法状态目标时拒绝且不进入空子选择的回归覆盖。
 
+## 基础引导与规则说明（A3-26）
+- `TutorialContent.cs` — 引导与帮助文本的唯一目录：8 个 `TutorialTopic`（地图移动、粮食、出牌、共享能量、敌人意图、奖励、事件选择、营地建筑）和 5 个 `HelpSection`（总览、卡牌、状态、资源、图标）；每条引导包含标题、摘要、详情及关联帮助分类。
+- `TutorialProgressService.cs` — 当前活动战役的引导进度服务：用 PlayerPrefs 位掩码在退出/继续之间保留确认状态，`Complete`/`SkipAll` 仅写引导位，不触碰 `RunSession`。`BeginNewRun` 在普通新游戏、指定种子、同种子重开和失败后新游戏时清零；继续游戏不调用它，因此保持当前存档进度。提供隔离存储键与重载接口供测试使用。
+- `TutorialCoordinator.cs` — 场景级队列协调器：按机制首次出现去重入队，地图两条和战斗三条保持固定顺序；管理“知道了 / 查看详情 / 跳过全部”、帮助页层级、静态与运行时 `HelpButton` 注册，以及 Development/Testing 的重置入口。
+- `TutorialOverlayView.cs` / `Assets/Prefabs/TutorialOverlay.prefab` — 全屏模态引导层：展示总进度、标题与摘要并阻挡底层点击；关闭当前主题才展示下一条，查看详情时 `HelpPage` 覆盖其上，关闭帮助后回到原引导。
+- `HelpPageView.cs` / `Assets/Prefabs/HelpPage.prefab` — 全屏规则页：左侧五类导航，右侧上下文详情与可滚动正文；Release 隐藏“重置引导（测试）”，但规则页本身和首次机制引导保持可用。
+- 触发边界：`GameUi.ShowPage` 负责 Map/Combat/Event/Camp，`BattleView.ShowRewardPage` 负责 Reward；帮助入口分布于主菜单、地图、事件、营地、战斗、奖励、胜利和失败页。引导只覆盖 UI 提示，不参与状态机、资源结算、目标判定或存档快照。
+- `TutorialProgressServiceTests.cs` — 7 个 EditMode 用例：主题与帮助目录顺序、单主题幂等与重载、跳过全部、新局清零、手动重置、机制数据不变；完整回归当前为 358/358。
+
 ## UI 结构（全 Prefab 页面路由，2026-09-07）
-- `GameUi.cs` — 页面路由总协调器：序列化持有主菜单、地图、事件、营地、胜利、失败与 `BattleView` 引用；`ResolvePrefabPageRefs` 从各 Prefab 固定路径解析导航控件，`BindButtons` 连接业务回调，`ShowPage` 只按 `GameState` 激活对应页面，`ReturnToMenu` 统一先 `RunSession.Reset()`。继续游戏仍按 Map/Event/Camp/Combat 恢复结果分流。旧 TestPage 调试战斗按钮、旧手牌生成、动态胜利按钮和非 Prefab 页面依赖均已删除。
-- `Assets/Prefabs/MainMenu.prefab` — 主菜单唯一模板：ScrollRect + Viewport + Content，包含新游戏、继续游戏、存档状态、测试入口、指定种子、模式切换和退出；测试项由 `GameConfigProvider.TestToolsEnabled` 控制，指定种子控件不再游离在 Canvas 根级。
+- `GameUi.cs` — 页面路由总协调器：序列化持有主菜单、地图、事件、营地、胜利、失败与 `BattleView` 引用；`ResolvePrefabPageRefs` 从各 Prefab 固定路径解析导航控件，`BindButtons` 连接业务回调，`ShowPage` 只按 `GameState` 激活对应页面并通知 `TutorialCoordinator`。普通新游戏、指定种子、同种子重开和失败后新游戏先调用 `TutorialProgressService.BeginNewRun`；继续游戏保留引导进度。`ReturnToMenu` 统一先 `RunSession.Reset()`，旧 TestPage 依赖均已删除。
+- `Assets/Prefabs/MainMenu.prefab` — 主菜单唯一模板：ScrollRect + Viewport + Content，包含新游戏、继续游戏、存档状态、正式“规则说明”、测试入口、指定种子、模式切换和退出；测试项由 `GameConfigProvider.TestToolsEnabled` 控制。
 - `Assets/Prefabs/TestHud.prefab` — 开发/测试诊断 HUD：显示随机种子、状态、配置、最近结算/状态切换、内容校验与本局记录；Release 隐藏，且不参与正式页面布局。
 - `Assets/Prefabs/VictoryPage.prefab` — Canvas 直属全屏胜利结算页：中央 `VictoryCard` 显示结算原因、区域、用时、牌组、伙伴、资源、建筑、遗物和种子，提供“返回主菜单 / 同种子重开”；文本由 `GameUi.SetVictoryPage` 写入。
-- `BattleView.cs` — 战斗与奖励运行时页面控制器：实例化 `BattlePage.prefab`、`RewardPage.prefab` 及单位/卡牌/遗物条目；绑定战斗和奖励页返回主菜单、继续旅程及测试按钮。监听 `GameConfigProvider.Changed`，只在 Development/Testing 显示上一组、下一组和模拟胜负。
+- `BattleView.cs` — 战斗与奖励运行时页面控制器：实例化 `BattlePage.prefab`、`RewardPage.prefab` 及单位/卡牌/遗物条目；绑定战斗和奖励页返回主菜单、规则说明、继续旅程及测试按钮。监听 `GameConfigProvider.Changed` 控制测试工具；首次奖励页调用 `TutorialCoordinator.Enqueue(Reward)`。
 - `FailurePageView.cs` — 失败页展示绑定器：将 `SettlementSummary` 的原因、区域进度、用时和种子写入 Prefab，并重绑“开始新游戏”；“返回主菜单”由 `GameUi` 统一绑定。
-- Canvas：ScreenSpaceOverlay + CanvasScaler（1920×1080，match 0.5）。静态页面子对象全部是 Prefab 实例；子对象顺序仍决定渲染顺序，`BattlePage`/`RewardPage` 是运行时全屏实例，`TestHud` 在开发/测试配置下保持顶层。
+- Canvas：ScreenSpaceOverlay + CanvasScaler（1920×1080，match 0.5）。九个静态页面/覆盖层子对象全部是 Prefab 实例；`BattlePage`/`RewardPage` 是运行时全屏实例，`TestHud` 仅开发/测试可见，`TutorialOverlay` 与 `HelpPage` 始终在普通页面和 HUD 之上。
 - EventSystem：EventSystem + StandaloneInputModule（Legacy Input）。
 
 ## 营地界面 Prefab（2026-09-01 优化）
-- `Assets/Prefabs/CampOptions.prefab` — `1680×900` Canvas 直属营地页：`HeaderPanel` 展示标题、四资源、最近结算/操作提示及 `ReturnToMenuButton`；下方 `CampLayout` 保持左队伍、右设施的双栏滚动结构。胜利结算已迁至独立 `VictoryPage.prefab`，不再存在 `SettlementActions`。
+- `Assets/Prefabs/CampOptions.prefab` — `1680×900` Canvas 直属营地页：`HeaderPanel` 展示标题、四资源、最近结算/操作提示、`HelpButton` 与 `ReturnToMenuButton`；下方 `CampLayout` 保持左队伍、右设施的双栏滚动结构。
 - `Assets/Prefabs/CampTeamCard.prefab` / `CampTeamCardView.cs` — 伙伴卡模板与绑定组件：头像占位、姓名、编队位置/定位、HP/忠诚、疲劳/疾病、主/次操作按钮；同一模板渲染主角与所有已招募伙伴。
 - `Assets/Prefabs/CampFacilityCard.prefab` / `CampFacilityCardView.cs` — 设施卡模板与绑定组件：图标占位、名称、成本/条件/效果、禁用状态与点击入口；篝火、牌组、建筑、遗物服务和离开入口共用。
 - 营地动态文字统一为 `TextMeshProUGUI`，字体固定为 `Assets/Fonts/SIMHEI SDF.asset`；后期美术只需替换 Prefab 的 Portrait/Icon/背景，无需修改业务逻辑。
 
 ## 事件界面 Prefab（2026-09-01 优化）
-- `Assets/Prefabs/EventPage.prefab` / `EventPageView.cs` — 三栏事件页面：左侧插画占位和区域/类别/ID，中间标题、叙事、资源和流程提示，右侧滚动选项列表；`OptionsPanel/ReturnToMenuButton` 是正式导航，`OptionsPanel/TestControls` 内的上一组/下一组仅 Development/Testing 显示；按事件类别切换占位色，后期可直接替换 Artwork。
+- `Assets/Prefabs/EventPage.prefab` / `EventPageView.cs` — 三栏事件页面：左侧插画，中间叙事/资源/流程提示，右侧选项；`OptionsPanel` 顶部同时放置正式 `HelpButton`、`ReturnToMenuButton` 和仅 Development/Testing 显示的上一组/下一组测试控件。
 - `Assets/Prefabs/EventOptionCard.prefab` / `EventOptionCardView.cs` — 可复用选项卡：角色/类型徽标、选项名称、条件或成本、预期结果、锁定原因和交互状态；普通选项、伙伴条件、事件战斗、卡牌子选择和状态治疗均使用同一模板。
 - `EventPageView` 只负责展示和实例化选项卡；条件判定与结算仍归 `RunSession`，`GameUi` 负责把选项及测试翻页回调连接到 `ChooseEventOption`/`ChooseEventCard`/`ChooseEventStatusUnit`/`PrevEvent`/`NextEvent`。
 
 ## 失败界面 Prefab（2026-09-02 优化）
-- `Assets/Prefabs/FailurePage.prefab` / `FailurePageView.cs` — Canvas 直属全屏失败页：中央 `FailureCard` 显示图标、标题、失败原因、区域/用时/种子；底部“返回主菜单 / 开始新游戏”并排，其中开始新游戏先清理旧会话再进入随机新局。只服务失败结算，胜利结算由 `VictoryPage.prefab` 承载。
+- `Assets/Prefabs/FailurePage.prefab` / `FailurePageView.cs` — Canvas 直属全屏失败页：中央 `FailureCard` 显示失败摘要，顶部有 `HelpButton`，底部“返回主菜单 / 开始新游戏”并排；开始新游戏会同时清理旧会话并重置本局引导。
 
 ## 战斗与奖励界面 Prefab（2026-09-02 优化）
-- `Assets/Prefabs/BattlePage.prefab` — 保持既有五区块 RectTransform：TopBar（TurnInfo/Energy/Morale/Plunder + 测试按钮）/ MainArea（TeamPanel/EnemyPanel/RightPanel/EndTurnBtn）/ BottomBar（DrawPile/HandCards/DiscardPile）；`RightPanel/ReturnBtn` 是正式返回主菜单入口，TopBar 的上一组/下一组/模拟胜负仅测试配置显示。视觉统一为深色背景、金色主操作、友方蓝与敌方红边框。
+- `Assets/Prefabs/BattlePage.prefab` — 保持 TopBar/MainArea/BottomBar 五区块；`RightPanel` 扩展为战斗目标、`HelpButton`、`ReturnBtn` 三部分，TopBar 的上一组/下一组/模拟胜负仅测试配置显示。
 - `Assets/Prefabs/UnitCard.prefab` / `Assets/Prefabs/EnemyCard.prefab` — 结构相同的单位卡模板（TopBar/Name/HP/Status/Intent），分别提供友方与敌方基线样式；`BattleView.CreateUnitCard` 写入实时数据并在选目标模式追加金色高亮。`EnemyCard/Intent` 固定为 `FontStyles.Normal + FontWeight.Regular`，运行时敌人意图不加粗。
 - `Assets/Prefabs/HandCard.prefab` — 战斗手牌与奖励卡共享的唯一卡牌模板：固定 `200×300`、缩放 1，TopBar / CostRow(Cost/Name) / Effect。费用、名称和效果均使用 `FontStyles.Normal`；`BattleView.CreateHandCard` 与 `CreateRewardCard` 运行时再次强制普通字重。奖励路径仅改文本/颜色/回调，不覆盖 RectTransform 或 LayoutElement。
-- `Assets/Prefabs/RewardPage.prefab` — 独立奖励页：`HeaderPanel`（胜利标题、资源入账、当前资源、`ReturnToMenuButton`）/ `Content/CardSection/CardOptions`（3 张卡选 1）/ `Content/RelicSection/RelicOptions`（精英/首领遗物选 1）/ `CompletionMessage` / `BottomBar`（放弃剩余奖励、继续旅程）。两个选项容器均带 Image/CanvasRenderer，运行时条目可稳定渲染。
+- `Assets/Prefabs/RewardPage.prefab` — 独立奖励页：`HeaderPanel` 包含胜利标题、资源摘要、`HelpButton` 与 `ReturnToMenuButton`；内容区处理卡牌/遗物，底栏处理放弃剩余奖励与继续旅程。
 - `Assets/Prefabs/RelicReward.prefab` — `280×124` 横向金色遗物槽：图标占位、名称、效果与首领专属标签；只由奖励页实例化。
 - `BattleView.ShowRewardPage` — 保留 `RewardResolver` 全局混合索引，分别将卡牌/遗物放入独立容器；领卡后遗物区自动居中，全部处理后隐藏选项区并显示完成提示。卡牌类别标签按 C01-C40 目录段映射为攻击/防御/策略/战术/后勤，稀有度只作展示，不改奖励规则；返回主菜单会关闭战斗/奖励运行时实例并交给 `GameUi.ReturnToMenu` 清理会话。
 
 ## 事件流
 - `RunSession.Changed` / `GameFlow.Changed` → `GameUi.Refresh()`（HUD：种子/状态/配置/最近结算/最近状态切换）；`GameConfigProvider.Changed` → `GameUi.RefreshConfigUi()`；`CampaignSaveService.Changed` → `GameUi.RefreshSaveUi()`（继续按钮可用性与明确存档状态）。
-- `GameBootstrap`（BeforeSceneLoad）→ `GameConfigProvider.Initialize()` + `ContentRegistry.LoadAll()` + `RunSession.Reset()` + `CampaignSaveService.Initialize()` → 场景 `GameUi.Awake` 接管 UI。
+- `GameBootstrap`（BeforeSceneLoad）→ `GameConfigProvider.Initialize()` + `TutorialProgressService.Initialize()` + `ContentRegistry.LoadAll()` + `RunSession.Reset()` + `CampaignSaveService.Initialize()` → 场景 `GameUi` / `TutorialCoordinator` 接管页面与引导。

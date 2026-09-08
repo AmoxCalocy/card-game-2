@@ -29,6 +29,7 @@ namespace OneJourney.Core
         private TMP_Text _plunderText;
         private Button _endTurnButton;
         private Button _returnButton;
+        private Button _helpButton;
         private Button _prevEncounterButton;
         private Button _nextEncounterButton;
         private Button _simulateVictoryButton;
@@ -57,6 +58,7 @@ namespace OneJourney.Core
         private Button _rewardContinueBtn;
         private TMP_Text _rewardContinueText;
         private Button _rewardMenuButton;
+        private Button _rewardHelpButton;
         private readonly List<GameObject> _rewardCardGos = new List<GameObject>();
         private string _rewardStatusText; // 领卡/跳过后显示在明细下
 
@@ -94,6 +96,7 @@ namespace OneJourney.Core
                 if (_nextEncounterButton != null) _nextEncounterButton.onClick.AddListener(OnNextEncounter);
                 if (_simulateVictoryButton != null) _simulateVictoryButton.onClick.AddListener(OnSimulateVictory);
                 if (_simulateDefeatButton != null) _simulateDefeatButton.onClick.AddListener(OnSimulateDefeat);
+                TutorialCoordinator.Instance?.RegisterHelpButton(_helpButton);
                 EnsureRewardPanel(canvasTr);
                 RefreshTestControls();
 
@@ -156,6 +159,7 @@ namespace OneJourney.Core
             _endTurnButton = r.Find("TopBar/EndTurnBtn")?.GetComponent<Button>()
                 ?? r.Find("MainArea/EndTurnBtn")?.GetComponent<Button>();
             _returnButton = r.Find("MainArea/RightPanel/ReturnBtn")?.GetComponent<Button>();
+            _helpButton = r.Find("MainArea/RightPanel/HelpButton")?.GetComponent<Button>();
             // 测试入口遭遇翻页：BattlePage 顶部按钮仅在测试配置下显示。
             _prevEncounterButton = r.Find("TopBar/Button_PrevEncounter")?.GetComponent<Button>();
             _nextEncounterButton = r.Find("TopBar/Button_NextEncounter")?.GetComponent<Button>();
@@ -253,9 +257,11 @@ namespace OneJourney.Core
             _rewardContinueBtn = r.Find("BottomBar/ContinueBtn")?.GetComponent<Button>();
             _rewardContinueText = r.Find("BottomBar/ContinueBtn/Text")?.GetComponent<TMP_Text>();
             _rewardMenuButton = r.Find("HeaderPanel/ReturnToMenuButton")?.GetComponent<Button>();
+            _rewardHelpButton = r.Find("HeaderPanel/HelpButton")?.GetComponent<Button>();
             if (_rewardSkipBtn != null) _rewardSkipBtn.onClick.AddListener(OnRewardSkip);
             if (_rewardContinueBtn != null) _rewardContinueBtn.onClick.AddListener(OnRewardContinue);
             if (_rewardMenuButton != null) _rewardMenuButton.onClick.AddListener(OnRewardReturnToMenu);
+            TutorialCoordinator.Instance?.RegisterHelpButton(_rewardHelpButton);
         }
 
         /// <summary>弹出奖励页（战斗胜利后自动调用；模拟胜利等外部路径也可直接调用）。</summary>
@@ -327,6 +333,7 @@ namespace OneJourney.Core
             if (_rewardSkipText != null)
                 _rewardSkipText.text = relicCount > 0 ? "放弃剩余奖励" : "跳过卡牌奖励";
             if (_rewardContinueText != null) _rewardContinueText.text = "继续旅程";
+            TutorialCoordinator.Instance?.Enqueue(TutorialTopic.Reward);
             return true;
         }
 

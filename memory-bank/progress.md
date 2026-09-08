@@ -362,5 +362,21 @@ aiEditMode: inherit
   - `EnemyCard.prefab/Intent` 改为 `FontStyles.Normal + FontWeight.Regular`，敌人意图文字不再加粗。
 - 验证：核心程序集编译 0 错误；Play Mode 自动检查地图、事件、营地、战斗、奖励、胜利结算、失败结算 7 个页面均可返回主菜单；Release 检查确认测试 HUD/入口/种子/事件翻页隐藏且正式返回按钮保留；战斗与奖励卡牌文字、2 个运行时敌人意图均为 Normal/Regular；Console 0 警告/错误；用户完成手动验证。未生成独立 Player 构建。
 
+## 2026-09-07 · A3-26 完成基础引导与规则说明（用户已验证）
+- 基础引导：
+  - `TutorialContent.cs`（新）— 定义 8 条机制引导及唯一文本顺序：地图移动、粮食、出牌、共享能量、敌人意图、战斗奖励、事件选择、营地建筑；同时集中定义旅程总览、卡牌类型、状态、资源与风险、图标与标记 5 个帮助分类。
+  - `TutorialProgressService.cs`（新）— 用独立 PlayerPrefs 位掩码记录当前战役已确认/跳过的主题；`Complete`、`SkipAll`、`ResetProgress` 不读写 `RunSession` 机制数据。修正后 `BeginNewRun` 在普通新游戏、指定种子新游戏、同种子重开和失败页新游戏时清零引导；继续游戏不清零，因此保留当前存档已经看过的主题。
+  - `TutorialCoordinator.cs`（新）— 管理待显示队列、去重、按首次机制出现触发、查看详情、跳过全部、帮助页层级和页面帮助按钮注册；同一页面的地图两条与战斗三条严格按计划顺序显示。
+  - `TutorialOverlayView.cs` + `Assets/Prefabs/TutorialOverlay.prefab`（新）— 全屏阻挡式引导弹窗，显示进度、标题和摘要，提供“查看详情 / 跳过全部引导 / 知道了”；只阻挡输入，不改变资源、战斗、事件或奖励结果。
+- 规则说明：
+  - `HelpPageView.cs` + `Assets/Prefabs/HelpPage.prefab`（新）— 全屏规则页，左侧切换旅程总览、卡牌类型、状态说明、资源与风险、图标与标记，右侧显示可滚动正文；从引导打开时追加当前主题详情。
+  - `MainMenu.prefab` 及地图、事件、营地、战斗、奖励、胜利、失败页面均加入“规则说明”入口；Development/Testing 显示“重置引导（测试）”，Release 隐藏重置按钮但保留规则页和正式引导。
+  - `Assets/Scenes/SampleScene.unity` 的 `GameUi` 根对象新增 `TutorialCoordinator`；Canvas 新增 `TutorialOverlay` 与 `HelpPage` 两个 Prefab 实例，并保持在 TestHud 之上显示。`Assets/Fonts/SIMHEI SDF.asset` 自动补入规则页所需中文字形，新增 TMP 文字均为 Normal/Regular。
+- 触发接入：
+  - `GameUi.ShowPage` 在 Map/Combat/Event/Camp 首次显示时排入对应主题；`BattleView.ShowRewardPage` 在首次奖励页排入战斗奖励；帮助按钮由 `TutorialCoordinator` 统一绑定，战斗与奖励的运行时按钮由 `BattleView` 注册。
+  - 新游戏入口统一调用 `TutorialProgressService.BeginNewRun`；`OnContinueGame` 保留已有进度。用户反馈“新游戏仍接续上局引导”后已修正并覆盖普通新游戏、指定种子、同种子重开和失败后新游戏四条路径。
+- 回归修复：完整测试发现既有 `CampaignSaveTests.MapRoundTrip_RestoresCampaignAndRandomState` 稳定失败；`RunSession.TryContinue` 补写 `RunRecord` 的“继续游戏”一般记录，使读档后既保留旧记录也追加继续记录。
+- 验证：真实流程“新游戏→第一节点战斗→奖励→第二节点事件”按地图移动→粮食→出牌→共享能量→敌人意图→奖励→事件选择显示，地图主题不重复；帮助详情关闭后返回原引导；跳过全部前后种子、资源、风险、状态和地图不变；所有页面规则入口可用，Release 隐藏测试重置；继续游戏保留已完成主题，而四类新局入口均重新从地图移动开始。`TutorialProgressServiceTests` 7/7，完整 EditMode 358/358，Console 0 警告/错误；用户确认功能验证通过。
+
 ## 进行中
-- 下一步：A3-26 完成基础引导与规则说明（等待用户明确指示开始）。
+- 下一步：A3-27 完成基础无障碍与输入检查（等待用户明确指示开始）。

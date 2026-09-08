@@ -74,8 +74,11 @@ namespace OneJourney.Core
         [Header("战斗界面（A1-14）")]
         [SerializeField] private BattleView _battleView;
 
+        private TutorialCoordinator _tutorialCoordinator;
+
         private void Awake()
         {
+            _tutorialCoordinator = GetComponent<TutorialCoordinator>();
             ResolvePrefabPageRefs();
             BindButtons();
 
@@ -190,6 +193,7 @@ namespace OneJourney.Core
 
         private void ShowMenu()
         {
+            _tutorialCoordinator?.CloseAllOverlays();
             HidePrefabPages();
             if (_menuPanel != null) _menuPanel.SetActive(true);
 
@@ -273,12 +277,15 @@ namespace OneJourney.Core
 
             if (!shown)
                 Debug.LogWarning("[GameUi] 当前状态没有可显示的页面 Prefab：" + RunSession.CurrentState, this);
+            else
+                _tutorialCoordinator?.EnqueueForState(RunSession.CurrentState);
 
             RefreshConfigUi();
         }
 
         private void OnStartNewGame()
         {
+            TutorialProgressService.BeginNewRun();
             RunSession.StartNewGame();
             ShowPage("地图（新游戏入口）", BuildMapDescription());
         }
@@ -330,6 +337,7 @@ namespace OneJourney.Core
                 seed = parsed;
             }
 
+            TutorialProgressService.BeginNewRun();
             RunSession.StartNewGame(seed);
             ShowPage("地图（指定种子）",
                 "新游戏会话已创建（" + (seed.HasValue ? "种子 " + seed.Value : "随机种子") + "）。\n" + BuildMapDescription());
@@ -435,6 +443,7 @@ namespace OneJourney.Core
         public void RestartWithSameSeed()
         {
             int seed = RunSession.Seed;
+            TutorialProgressService.BeginNewRun();
             RunSession.Reset();
             RunSession.StartNewGame(seed);
             ShowPage("地图（同种子重开）", BuildMapDescription());
