@@ -477,7 +477,16 @@ namespace OneJourney.Core
             return null;
         }
 
-        /// <summary>选择事件选项：条件校验→支付→即时结果→待定子选择或事件战斗。</summary>
+        private static string ApplyEventOptionCosts(EventOptionDef opt)
+        {
+            var parts = new List<string>();
+            if (opt.CostFood > 0) { Food -= opt.CostFood; parts.Add("粮食 -" + opt.CostFood); }
+            if (opt.CostWealth > 0) { Wealth -= opt.CostWealth; parts.Add("财富 -" + opt.CostWealth); }
+            if (opt.CostReputation > 0) { Reputation -= opt.CostReputation; parts.Add("声望 -" + opt.CostReputation); }
+            return string.Join(" ", parts);
+        }
+
+        /// <summary>选择事件选项：条件校验→待定子选择或支付→即时结果/事件战斗。</summary>
         public static string ChooseEventOption(int optionIndex)
         {
             if (CurrentEvent == null) return "当前没有进行中的事件";
@@ -490,11 +499,17 @@ namespace OneJourney.Core
             PendingEventChoice = EventOptionChoiceKind.None;
             PendingEventOptionIndex = -1;
 
-            // 支付资源
-            string payText = "";
-            if (opt.CostFood > 0) { Food -= opt.CostFood; payText += "粮食 -" + opt.CostFood + " "; }
-            if (opt.CostWealth > 0) { Wealth -= opt.CostWealth; payText += "财富 -" + opt.CostWealth + " "; }
-            if (opt.CostReputation > 0) { Reputation -= opt.CostReputation; payText += "声望 -" + opt.CostReputation + " "; }
+            // 需要子选择：先记录待定，最终确认具体目标时才支付和修改状态。
+            var choice = NeedChoice(opt);
+            if (choice != EventOptionChoiceKind.None)
+            {
+                PendingEventChoice = choice;
+                PendingEventOptionIndex = optionIndex;
+                return ChoicePrompt(choice) + "（最终确认后支付："
+                    + AccessibilityCopy.FormatCosts(opt.CostFood, opt.CostWealth, opt.CostReputation, 0) + "）";
+            }
+
+            string payText = ApplyEventOptionCosts(opt);
 
             // 触发事件战斗
             if (opt.CombatEnemyIds != null && opt.CombatEnemyIds.Length > 0)
@@ -502,19 +517,8 @@ namespace OneJourney.Core
                 _pendingEventCombatReward = opt;
                 StartEventCombat(opt);
                 RecordResolution("事件", CurrentEvent.DisplayName + "：" + opt.Label,
-                    (payText.Length > 0 ? payText.Trim() + "；" : "") + "触发战斗：" + opt.CombatLabel);
+                    (payText.Length > 0 ? payText + "；" : "") + "触发战斗：" + opt.CombatLabel);
                 return "战斗开始：" + opt.CombatLabel + "（胜利后结算事件奖励）";
-            }
-
-            // 需要子选择：先记录待定，不立即应用其余结果
-            var choice = NeedChoice(opt);
-            if (choice != EventOptionChoiceKind.None)
-            {
-                PendingEventChoice = choice;
-                PendingEventOptionIndex = optionIndex;
-                RecordResolution("事件", CurrentEvent.DisplayName + "：" + opt.Label,
-                    (payText.Length > 0 ? payText.Trim() + "；" : "") + "需要选择");
-                return ChoicePrompt(choice);
             }
 
             // 立即结算（含全队状态移除）
@@ -522,12 +526,12 @@ namespace OneJourney.Core
             string result = ApplyEventOptionEffects(opt, null, null);
             FinishEvent(opt);
             RecordResolution("事件", evtName + "：" + opt.Label,
-                (payText.Length > 0 ? payText.Trim() + "；" : "") + result);
+                (payText.Length > 0 ? payText + "；" : "") + result);
             CampaignSaveService.TryAutosave(SaveCheckpointKind.Map, out _);
             return result;
         }
 
-        /// <summary>完成事件子选择：移除卡 / 升级卡。</summary>
+        /// <summary>完成事件子选择：最终校验并支付后，移除卡或升级卡。</summary>
         public static string ChooseEventCard(string cardId)
         {
             if (CurrentEvent == null || PendingEventChoice == EventOptionChoiceKind.None)
@@ -538,14 +542,22 @@ namespace OneJourney.Core
             var opt = CurrentEvent.Options[PendingEventOptionIndex];
             if (CampaignDeck == null) return "战役牌组未初始化";
 
-            if (PendingEventChoice == EventOptionChoiceKind.RemoveCard)
+            string block = EventOptionBlockReason(opt);
+            if (block != null) return "选项不可用：" + block;
+
+            bool removing = PendingEventChoice == EventOptionChoiceKind.RemoveCard;
+            if (removing)
             {
                 if (CampaignDeck.IsInitialLockedCard(cardId) || !CampaignDeck.Cards.Contains(cardId))
                     return "该卡不可移除";
-                if (!CampaignDeck.RemoveCard(cardId)) return "牌组已达下限，不能移除";
+                if (CampaignDeck.Count <= GameStartParameters.MinDeckSize)
+                    return "牌组已达下限，不能移除";
+                if (!CampaignDeck.RemoveCard(cardId)) return "该卡不可移除";
             }
             else if (PendingEventChoice == EventOptionChoiceKind.UpgradeCard)
             {
+                if (!CampaignDeck.Cards.Contains(cardId) || CampaignDeck.UpgradedCards.Contains(cardId))
+                    return "该卡不能升级（不在牌组或已升级）";
                 if (!CampaignDeck.UpgradeCard(cardId)) return "该卡不能升级（不在牌组或已升级）";
             }
             else
@@ -553,10 +565,12 @@ namespace OneJourney.Core
                 return "当前待定选择不是卡牌";
             }
 
+            string payText = ApplyEventOptionCosts(opt);
             string result = ApplyEventOptionEffects(opt, cardId, null);
-            string detail = PendingEventChoice == EventOptionChoiceKind.RemoveCard
+            string detail = removing
                 ? "移除卡 " + cardId + "（" + CardName(cardId) + "）；" + result
                 : "升级卡 " + CardName(cardId) + "；" + result;
+            if (payText.Length > 0) detail = payText + "；" + detail;
             string evtName = CurrentEvent.DisplayName;
             PendingEventChoice = EventOptionChoiceKind.None;
             PendingEventOptionIndex = -1;
@@ -575,6 +589,8 @@ namespace OneJourney.Core
                 return "事件选项索引无效";
 
             var opt = CurrentEvent.Options[PendingEventOptionIndex];
+            string block = EventOptionBlockReason(opt);
+            if (block != null) return "选项不可用：" + block;
             string targetName;
 
             if (unitId == "PLAYER")
@@ -610,8 +626,10 @@ namespace OneJourney.Core
                 targetName = p.Def.DisplayName;
             }
 
+            string payText = ApplyEventOptionCosts(opt);
             string result = ApplyEventOptionEffects(opt, null, unitId);
             string detail = targetName + " 移除" + (removeDisease ? "疾病" : "疲劳") + "；" + result;
+            if (payText.Length > 0) detail = payText + "；" + detail;
             string evtName = CurrentEvent.DisplayName;
             PendingEventChoice = EventOptionChoiceKind.None;
             PendingEventOptionIndex = -1;
@@ -621,18 +639,16 @@ namespace OneJourney.Core
             return detail;
         }
 
-        /// <summary>取消事件子选择（无可选项时由界面调用，结算记录后回到地图）。</summary>
-        public static void CancelEventChoice()
+        /// <summary>取消事件子选择并返回当前事件选项；不支付资源，也不改变牌组或队伍状态。</summary>
+        public static string CancelEventChoice()
         {
-            if (CurrentEvent == null || PendingEventChoice == EventOptionChoiceKind.None) return;
+            if (CurrentEvent == null || PendingEventChoice == EventOptionChoiceKind.None)
+                return "当前没有可取消的事件选择";
+
             PendingEventChoice = EventOptionChoiceKind.None;
             PendingEventOptionIndex = -1;
-            CurrentEvent = null;
-            if (RegionMap.IsGenerated)
-            {
-                GameFlow.TryTransition(GameState.Map, "事件无可选项，返回地图");
-                CampaignSaveService.TryAutosave(SaveCheckpointKind.Map, out _);
-            }
+            Changed?.Invoke();
+            return "已取消选择：资源、牌组与队伍状态均未改变。";
         }
 
         /// <summary>事件战斗胜利后结算额外奖励（由 CombatManager 胜利时调用，仅结算一次）。</summary>

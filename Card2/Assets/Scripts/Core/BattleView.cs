@@ -146,6 +146,7 @@ namespace OneJourney.Core
                 _endTurnButton.gameObject.SetActive(CombatManager.CanPlayerAct);
                 _endTurnButton.interactable = CombatManager.CanPlayerAct;
             }
+            RefreshAccessibilityScope();
         }
 
         private void ResolveRefs()
@@ -333,6 +334,7 @@ namespace OneJourney.Core
             if (_rewardSkipText != null)
                 _rewardSkipText.text = relicCount > 0 ? "放弃剩余奖励" : "跳过卡牌奖励";
             if (_rewardContinueText != null) _rewardContinueText.text = "继续旅程";
+            RefreshAccessibilityScope();
             TutorialCoordinator.Instance?.Enqueue(TutorialTopic.Reward);
             return true;
         }
@@ -540,6 +542,30 @@ namespace OneJourney.Core
 
         private void OnRewardSkip()
         {
+            int cardCount = 0;
+            int relicCount = 0;
+            for (int i = 0; i < RewardResolver.PendingOptions.Count; i++)
+            {
+                RewardOption option = RewardResolver.PendingOptions[i];
+                if (!string.IsNullOrEmpty(option.CardId)) cardCount++;
+                else if (!string.IsNullOrEmpty(option.RelicId)) relicCount++;
+            }
+
+            var accessibility = AccessibilityInputController.Instance;
+            if (accessibility != null && accessibility.RequestConfirmation(
+                "确认放弃剩余奖励",
+                AccessibilityCopy.RewardSkipConfirmation(cardCount, relicCount),
+                "确认放弃",
+                CompleteRewardSkip))
+            {
+                return;
+            }
+
+            CompleteRewardSkip();
+        }
+
+        private void CompleteRewardSkip()
+        {
             RewardResolver.SkipReward();
             RunSession.RecordResolution("战斗奖励", "放弃剩余奖励", "已放弃未领取的卡牌与遗物");
             _rewardStatusText = "已放弃剩余奖励";
@@ -637,7 +663,9 @@ namespace OneJourney.Core
                     : new Color(0.50f, 0.20f, 0.17f, 1f);
             }
 
-            SetTmp(go, "Name", unit.DisplayName + (unit.IsAlive ? "" : " [阵亡]"));
+            bool accessibleTarget = _targetMode && unit.IsAlive && IsValidTarget(unit);
+            SetTmp(go, "Name", unit.DisplayName + (unit.IsAlive ? "" : " [阵亡]")
+                + (accessibleTarget ? " [可选目标]" : ""));
             var nameT = go.transform.Find("Name")?.GetComponent<TMP_Text>();
             if (nameT != null) nameT.color = unit.IsAlive
                 ? new Color(0.95f, 0.92f, 0.85f, 1f)
@@ -679,7 +707,7 @@ namespace OneJourney.Core
                 it.gameObject.SetActive(show);
             }
 
-            if (_targetMode && unit.IsAlive && IsValidTarget(unit))
+            if (accessibleTarget)
             {
                 var btn = go.GetComponent<Button>() ?? go.AddComponent<Button>();
                 var captured = unit;
@@ -736,8 +764,8 @@ namespace OneJourney.Core
             }
 
             SetTmp(go, "Word/CostRow/Cost", card.Cost.ToString());
-            SetTmp(go, "Word/CostRow/Name", card.DisplayName);
-            SetTmp(go, "Word/Effect", card.EffectText);
+            SetTmp(go, "Word/CostRow/Name", card.DisplayName + (selected ? " [已选]" : ""));
+            SetTmp(go, "Word/Effect", "[" + RewardCardRole(card) + "] " + card.EffectText);
 
             TMP_FontAsset uiFont = _turnInfoText != null ? _turnInfoText.font : null;
             var costText = go.transform.Find("Word/CostRow/Cost")?.GetComponent<TMP_Text>();
@@ -787,6 +815,76 @@ namespace OneJourney.Core
             if (CombatManager.Deck == null) return;
             if (_drawPileText != null) _drawPileText.text = "抽牌堆\n" + CombatManager.Deck.DrawPileCount;
             if (_discardPileText != null) _discardPileText.text = "弃牌堆\n" + CombatManager.Deck.DiscardPileCount;
+        }
+
+        public void RefreshAccessibilityScope()
+        {
+            var accessibility = AccessibilityInputController.Instance;
+            if (accessibility == null) return;
+
+            if (_rewardPanel != null && _rewardPanel.activeInHierarchy)
+            {
+                Selectable preferred = FirstInteractable(_rewardCardGos);
+                if (preferred == null && _rewardSkipBtn != null && _rewardSkipBtn.gameObject.activeInHierarchy
+                    && _rewardSkipBtn.IsInteractable()) preferred = _rewardSkipBtn;
+                if (preferred == null && _rewardContinueBtn != null && _rewardContinueBtn.gameObject.activeInHierarchy
+                    && _rewardContinueBtn.IsInteractable()) preferred = _rewardContinueBtn;
+                if (preferred == null) preferred = _rewardMenuButton;
+
+                accessibility.SetPageScope(_rewardPanel, preferred, null,
+                    "卡牌类别、遗物效果、资源入账与剩余奖励均以文字显示；放弃前需要再次确认。",
+                    true,
+                    true);
+                return;
+            }
+
+            if (_rootPanel == null || !_rootPanel.activeInHierarchy) return;
+
+            Selectable battlePreferred = null;
+            if (_targetMode)
+            {
+                battlePreferred = FirstInteractable(_enemyUnitGos);
+                if (battlePreferred == null) battlePreferred = FirstInteractable(_teamUnitGos);
+            }
+            else
+            {
+                battlePreferred = FirstInteractable(_handCardGos);
+            }
+
+            if (battlePreferred == null && _endTurnButton != null && _endTurnButton.gameObject.activeInHierarchy
+                && _endTurnButton.IsInteractable()) battlePreferred = _endTurnButton;
+            if (battlePreferred == null) battlePreferred = _returnButton;
+
+            accessibility.SetPageScope(_rootPanel, battlePreferred,
+                _targetMode ? (System.Func<bool>)CancelTargetSelectionFromInput : null,
+                _targetMode
+                    ? "名称后的“[可选目标]”同时标记合法目标；Esc 可取消选牌与目标选择。"
+                    : "卡牌名称与效果区标明类别；敌方意图、状态与数值均有文字说明。",
+                true,
+                true);
+        }
+
+        private bool CancelTargetSelectionFromInput()
+        {
+            if (!_targetMode) return false;
+            _selectedHandIndex = -1;
+            _selectedCard = null;
+            _targetMode = false;
+            Refresh();
+            return true;
+        }
+
+        private static Selectable FirstInteractable(List<GameObject> objects)
+        {
+            if (objects == null) return null;
+            for (int i = 0; i < objects.Count; i++)
+            {
+                GameObject go = objects[i];
+                if (go == null || !go.activeInHierarchy) continue;
+                Selectable selectable = go.GetComponent<Selectable>();
+                if (selectable != null && selectable.IsInteractable()) return selectable;
+            }
+            return null;
         }
 
         // === 交互 ===

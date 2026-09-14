@@ -95,6 +95,9 @@ namespace OneJourney.Core
             if (_helpPage == null) return;
             _helpPage.Show(section, null, GameConfigProvider.TestToolsEnabled);
             _helpPage.transform.SetAsLastSibling();
+            AccessibilityInputController.Instance?.PushModal(
+                _helpPage.gameObject, _helpPage.CloseButton, CloseHelpFromInput,
+                "帮助页可滚动阅读；关闭后返回之前的页面与焦点。", false);
         }
 
         public void CloseAllOverlays()
@@ -104,6 +107,7 @@ namespace OneJourney.Core
             _current = null;
             if (_overlay != null) _overlay.Hide();
             if (_helpPage != null) _helpPage.Hide();
+            AccessibilityInputController.Instance?.ClearModals();
         }
 
         private void EnsureViews()
@@ -153,6 +157,9 @@ namespace OneJourney.Core
                 _overlay.Show(entry, TutorialProgressService.CompletedCount,
                     OpenCurrentDetails, CompleteCurrent, SkipAllTutorials);
                 _overlay.transform.SetAsLastSibling();
+                AccessibilityInputController.Instance?.PushModal(
+                    _overlay.gameObject, _overlay.ContinueButton, null,
+                    "可选择查看详情、知道了或跳过全部；跳过不会改变游戏机制结果。", false);
                 return;
             }
         }
@@ -162,7 +169,11 @@ namespace OneJourney.Core
             if (!_current.HasValue) return;
             TutorialProgressService.Complete(_current.Value);
             _current = null;
-            if (_overlay != null) _overlay.Hide();
+            if (_overlay != null)
+            {
+                _overlay.Hide();
+                AccessibilityInputController.Instance?.PopModal(_overlay.gameObject);
+            }
             ShowNext();
         }
 
@@ -172,7 +183,11 @@ namespace OneJourney.Core
             _pending.Clear();
             _queued.Clear();
             _current = null;
-            if (_overlay != null) _overlay.Hide();
+            if (_overlay != null)
+            {
+                _overlay.Hide();
+                AccessibilityInputController.Instance?.PopModal(_overlay.gameObject);
+            }
         }
 
         private void OpenCurrentDetails()
@@ -183,11 +198,24 @@ namespace OneJourney.Core
             if (entry == null || _helpPage == null) return;
             _helpPage.Show(entry.HelpSection, entry, GameConfigProvider.TestToolsEnabled);
             _helpPage.transform.SetAsLastSibling();
+            AccessibilityInputController.Instance?.PushModal(
+                _helpPage.gameObject, _helpPage.CloseButton, CloseHelpFromInput,
+                "当前引导的完整规则说明；关闭后返回引导。", false);
+        }
+
+        private bool CloseHelpFromInput()
+        {
+            CloseHelp();
+            return true;
         }
 
         private void CloseHelp()
         {
-            if (_helpPage != null) _helpPage.Hide();
+            if (_helpPage != null)
+            {
+                _helpPage.Hide();
+                AccessibilityInputController.Instance?.PopModal(_helpPage.gameObject);
+            }
             if (_current.HasValue && _overlay != null)
             {
                 _overlay.transform.SetAsLastSibling();
@@ -202,12 +230,19 @@ namespace OneJourney.Core
             _pending.Clear();
             _queued.Clear();
             _current = null;
-            if (_overlay != null) _overlay.Hide();
+            if (_overlay != null)
+            {
+                _overlay.Hide();
+                AccessibilityInputController.Instance?.PopModal(_overlay.gameObject);
+            }
             if (_helpPage != null)
             {
                 _helpPage.Show(HelpSection.Overview, null, GameConfigProvider.TestToolsEnabled,
                     "基础引导进度已重置。关闭帮助页后，下一次进入对应机制时会重新显示。");
                 _helpPage.transform.SetAsLastSibling();
+                AccessibilityInputController.Instance?.PushModal(
+                    _helpPage.gameObject, _helpPage.CloseButton, CloseHelpFromInput,
+                    "基础引导进度已重置；关闭帮助页返回当前页面。", false);
             }
         }
 

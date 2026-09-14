@@ -25,6 +25,7 @@ namespace OneJourney.Core
         private bool _initialized;
 
         public bool IsVisible => gameObject.activeSelf;
+        public Button CloseButton => _closeButton;
 
         public void Initialize(UnityAction onClose, UnityAction onResetTutorial)
         {
@@ -99,6 +100,7 @@ namespace OneJourney.Core
 
             if (_contentRoot != null)
                 LayoutRebuilder.ForceRebuildLayoutImmediate(_contentRoot);
+            AccessibilityInputController.Instance?.RefreshModalScope(gameObject, _closeButton);
         }
 
         private void BindSection(Button button, HelpSection section)

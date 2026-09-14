@@ -24,6 +24,21 @@ namespace OneJourney.Core
         private UnityAction<int> _onNodeConfirmed;
         private int _selectedIndex = -1;
 
+        public Button PreferredButton
+        {
+            get
+            {
+                if (_nodes == null) return null;
+                for (int i = 0; i < _nodes.Count; i++)
+                {
+                    if (_nodeViews.TryGetValue(i, out MapNodeView view)
+                        && view != null && view.Button != null && view.Button.IsInteractable())
+                        return view.Button;
+                }
+                return null;
+            }
+        }
+
         public void SetMap(ContentRegion region, IReadOnlyList<RegionMapNode> nodes, IReadOnlyList<int> path,
             int currentNodeIndex, IReadOnlyList<int> visitedIndexes, IReadOnlyList<int> reachableIndexes,
             string resources, string riskHint, UnityAction<int> onNodeConfirmed)
@@ -45,11 +60,12 @@ namespace OneJourney.Core
                 ? "尚未出发 · 共 " + RegionMap.LayerCount + " 层"
                 : "已抵达第 " + nodes[currentNodeIndex].Layer + " 层 · 剩余 " + RegionMap.RemainingLayers + " 层";
             _resourceText.text = resources;
-            _riskText.text = riskHint;
+            _riskText.text = (RunSession.AmbushPending ? "【危机】" : "【风险】") + riskHint;
             _riskText.color = RunSession.AmbushPending
                 ? new Color(0.95f, 0.38f, 0.28f, 1f)
                 : new Color(0.95f, 0.69f, 0.30f, 1f);
 
+            UpdateGuideRows();
             CreateConnections(nodes, path, currentNodeIndex, reachableIndexes);
             CreateStartNode(currentNodeIndex);
 
@@ -136,6 +152,16 @@ namespace OneJourney.Core
             _selectedIndex = nodeIndex;
             MapNodeView view = _nodeViews[nodeIndex];
             view.SetSelected(true);
+            AccessibilityInputController.Instance?.RefreshPageScope(view.Button);
+        }
+
+        public bool CancelSelection()
+        {
+            if (_selectedIndex < 0) return false;
+            if (_nodeViews.TryGetValue(_selectedIndex, out MapNodeView selected) && selected != null)
+                selected.SetSelected(false);
+            _selectedIndex = -1;
+            return true;
         }
 
         private void DrawConnection(string name, Vector2 from, Vector2 to, Color color, float thickness)
@@ -171,12 +197,34 @@ namespace OneJourney.Core
             _nodeViews.Clear();
         }
 
-        private static Vector2 StartPosition()
+        private float RowY(int row)
         {
-            return new Vector2(0f, -235f);
+            float height = _nodeLayer != null && _nodeLayer.rect.height > 0f ? _nodeLayer.rect.height : 566f;
+            const float verticalMargin = 56f;
+            float usableHeight = Mathf.Max(400f, height - verticalMargin * 2f);
+            return -usableHeight * 0.5f + usableHeight * Mathf.Clamp(row, 0, 4) / 4f;
         }
 
-        private static Vector2 NodePosition(IReadOnlyList<RegionMapNode> nodes, int nodeIndex)
+        private void UpdateGuideRows()
+        {
+            if (_nodeLayer == null || _nodeLayer.parent == null) return;
+            Transform routePanel = _nodeLayer.parent;
+            for (int row = 0; row <= 4; row++)
+            {
+                float y = RowY(row);
+                RectTransform guide = routePanel.Find("Guide_" + row) as RectTransform;
+                if (guide != null) guide.anchoredPosition = new Vector2(guide.anchoredPosition.x, y);
+                RectTransform label = routePanel.Find("GuideLabel_" + row) as RectTransform;
+                if (label != null) label.anchoredPosition = new Vector2(label.anchoredPosition.x, y);
+            }
+        }
+
+        private Vector2 StartPosition()
+        {
+            return new Vector2(0f, RowY(0));
+        }
+
+        private Vector2 NodePosition(IReadOnlyList<RegionMapNode> nodes, int nodeIndex)
         {
             int layer = nodes[nodeIndex].Layer;
             int count = 0;
@@ -189,8 +237,7 @@ namespace OneJourney.Core
             }
 
             float x = (position - (count - 1) * 0.5f) * 420f;
-            float y = -140f + (layer - 1) * 125f;
-            return new Vector2(x, y);
+            return new Vector2(x, RowY(layer));
         }
 
         private static Color ConnectionColor(int fromIndex, int toIndex, IReadOnlyList<int> path,

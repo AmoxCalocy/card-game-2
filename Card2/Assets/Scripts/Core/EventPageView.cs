@@ -17,6 +17,21 @@ namespace OneJourney.Core
         [SerializeField] private Transform _optionList;
         [SerializeField] private EventOptionCardView _optionCardPrefab;
 
+        public Button FirstInteractableButton
+        {
+            get
+            {
+                if (_optionList == null) return null;
+                for (int i = 0; i < _optionList.childCount; i++)
+                {
+                    Button button = _optionList.GetChild(i).GetComponentInChildren<Button>(true);
+                    if (button != null && button.gameObject.activeInHierarchy && button.IsInteractable())
+                        return button;
+                }
+                return null;
+            }
+        }
+
         public void SetEvent(EventDef evt, string resources, string prompt)
         {
             _titleText.text = evt.DisplayName;

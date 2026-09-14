@@ -348,12 +348,13 @@ namespace OneJourney.Tests.EditMode
             int wealthBefore = RunSession.Wealth;
             string result = Choose(0);
 
-            Assert.AreEqual(wealthBefore - 15, RunSession.Wealth, "升级应先支付 15 财富");
+            Assert.AreEqual(wealthBefore, RunSession.Wealth, "进入卡牌子选择时不应提前扣费");
             StringAssert.Contains("请选择", result);
             Assert.AreEqual(EventOptionChoiceKind.UpgradeCard, RunSession.PendingEventChoice);
 
             string cardId = RunSession.CampaignDeck.Cards[0];
             RunSession.ChooseEventCard(cardId);
+            Assert.AreEqual(wealthBefore - 15, RunSession.Wealth, "最终确认升级后才支付 15 财富");
             Assert.IsTrue(RunSession.CampaignDeck.UpgradedCards.Contains(cardId), "卡应标记升级");
         }
 

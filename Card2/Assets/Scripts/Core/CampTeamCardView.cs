@@ -19,6 +19,9 @@ namespace OneJourney.Core
         [SerializeField] private Button _secondaryActionButton;
         [SerializeField] private TMP_Text _secondaryActionText;
 
+        public Button PrimaryActionButton => _primaryActionButton;
+        public Button SecondaryActionButton => _secondaryActionButton;
+
         public void SetContent(string displayName, string detail, bool alive, int fatigue, int disease)
         {
             _background.color = alive ? new Color(0.24f, 0.31f, 0.40f) : new Color(0.22f, 0.22f, 0.24f);

@@ -66,6 +66,7 @@ namespace OneJourney.Core
 
         private enum CampPageMode { None, Rest, ClinicCamp, ClinicTown, ClinicRelic, FreeUpgrade, DeckView }
         private CampPageMode _campMode;
+        private Button _campPreferredButton;
 
         [Header("事件页面（A2-19 / 布局优化）")]
         [SerializeField] private EventPageView _eventPageView;
@@ -75,10 +76,13 @@ namespace OneJourney.Core
         [SerializeField] private BattleView _battleView;
 
         private TutorialCoordinator _tutorialCoordinator;
+        private AccessibilityInputController _accessibility;
 
         private void Awake()
         {
             _tutorialCoordinator = GetComponent<TutorialCoordinator>();
+            _accessibility = GetComponent<AccessibilityInputController>();
+            if (_accessibility == null) _accessibility = gameObject.AddComponent<AccessibilityInputController>();
             ResolvePrefabPageRefs();
             BindButtons();
 
@@ -202,6 +206,7 @@ namespace OneJourney.Core
             if (_startWithSeedButton != null) _startWithSeedButton.gameObject.SetActive(showTestTools);
             RefreshSaveUi();
             RefreshConfigUi();
+            ApplyAccessibilityScope();
         }
 
         private void HidePrefabPages()
@@ -212,6 +217,97 @@ namespace OneJourney.Core
             if (_campOptionContainer != null) _campOptionContainer.gameObject.SetActive(false);
             if (_victoryPage != null) _victoryPage.SetActive(false);
             if (_failurePageView != null) _failurePageView.gameObject.SetActive(false);
+        }
+
+        private void ApplyAccessibilityScope()
+        {
+            if (_accessibility == null) return;
+
+            if (_menuPanel != null && _menuPanel.activeInHierarchy)
+            {
+                _accessibility.SetPageScope(_menuPanel, _startNewGameButton, null,
+                    "主菜单可全程使用键盘；继续游戏不可用时会自动跳过。", true);
+                return;
+            }
+
+            if (RunSession.CurrentState == GameState.Combat && CombatManager.IsActive && _battleView != null)
+            {
+                _battleView.RefreshAccessibilityScope();
+                return;
+            }
+
+            if (_mapPageView != null && _mapPageView.gameObject.activeInHierarchy)
+            {
+                _accessibility.SetPageScope(_mapPageView.gameObject,
+                    _mapPageView.PreferredButton != null ? _mapPageView.PreferredButton : _mapMenuButton,
+                    CancelMapSelection,
+                    "可达节点首次确认路线，再次确认才会移动和结算资源。", true);
+                return;
+            }
+
+            if (_eventPageView != null && _eventPageView.gameObject.activeInHierarchy)
+            {
+                Func<bool> cancel = RunSession.PendingEventChoice != EventOptionChoiceKind.None
+                    ? (Func<bool>)CancelEventSelection
+                    : null;
+                _accessibility.SetPageScope(_eventPageView.gameObject,
+                    _eventPageView.FirstInteractableButton != null ? _eventPageView.FirstInteractableButton : _eventMenuButton,
+                    cancel,
+                    RunSession.PendingEventChoice == EventOptionChoiceKind.None
+                        ? "选项卡会同时显示条件、成本、预期结果和锁定原因。"
+                        : "最终确认前可取消，取消不会扣费或修改战役状态。",
+                    true);
+                return;
+            }
+
+            if (_campOptionContainer != null && _campOptionContainer.gameObject.activeInHierarchy)
+            {
+                Func<bool> cancel = _campMode != CampPageMode.None ? (Func<bool>)CancelCampSelection : null;
+                _accessibility.SetPageScope(_campOptionContainer.gameObject,
+                    _campPreferredButton != null ? _campPreferredButton : _campMenuButton,
+                    cancel,
+                    _campMode == CampPageMode.None
+                        ? "建筑入口会先展示最终成本与结果，再由确认框执行建设。"
+                        : "可随时取消当前队员或卡牌选择并返回设施列表。",
+                    true);
+                return;
+            }
+
+            if (_failurePageView != null && _failurePageView.gameObject.activeInHierarchy)
+            {
+                _accessibility.SetPageScope(_failurePageView.gameObject,
+                    _failurePageView.StartNewGameButton, null, "失败原因、区域进度和种子均以文字显示。", true);
+                return;
+            }
+
+            if (_victoryPage != null && _victoryPage.activeInHierarchy)
+            {
+                _accessibility.SetPageScope(_victoryPage,
+                    _victoryRestartButton != null ? _victoryRestartButton : _victoryMenuButton,
+                    null, "结算摘要不依赖颜色，所有关键数据均以文字列出。", true);
+            }
+        }
+
+        private bool CancelMapSelection()
+        {
+            if (_mapPageView == null || !_mapPageView.CancelSelection()) return false;
+            _accessibility?.RefreshPageScope(_mapPageView.PreferredButton);
+            return true;
+        }
+
+        private bool CancelEventSelection()
+        {
+            if (RunSession.PendingEventChoice == EventOptionChoiceKind.None) return false;
+            CancelPendingEventChoice();
+            return true;
+        }
+
+        private bool CancelCampSelection()
+        {
+            if (_campMode == CampPageMode.None) return false;
+            _campMode = CampPageMode.None;
+            ShowCampPage("已取消当前选择，战役状态未改变。");
+            return true;
         }
 
         private void RefreshSaveUi()
@@ -277,10 +373,13 @@ namespace OneJourney.Core
 
             if (!shown)
                 Debug.LogWarning("[GameUi] 当前状态没有可显示的页面 Prefab：" + RunSession.CurrentState, this);
-            else
-                _tutorialCoordinator?.EnqueueForState(RunSession.CurrentState);
 
             RefreshConfigUi();
+            if (shown)
+            {
+                ApplyAccessibilityScope();
+                _tutorialCoordinator?.EnqueueForState(RunSession.CurrentState);
+            }
         }
 
         private void OnStartNewGame()
@@ -582,6 +681,7 @@ namespace OneJourney.Core
                 BuildResourceLine(),
                 BuildMapRiskHint(),
                 OnMapNodeClicked);
+            ApplyAccessibilityScope();
         }
 
         private void OnMapNodeClicked(int nodeIndex)
@@ -665,6 +765,52 @@ namespace OneJourney.Core
             return costs.Count > 0 ? string.Join("+", costs) : "无成本";
         }
 
+        private void RequestBuildConfirmation(BuildingDef building)
+        {
+            if (building == null) return;
+            Action confirm = () =>
+            {
+                string result = RunSession.TryBuildBuilding(building.Id);
+                ShowCampPage(result);
+            };
+
+            if (_accessibility != null && _accessibility.RequestConfirmation(
+                "确认建设 " + building.DisplayName,
+                AccessibilityCopy.BuildingConfirmation(building),
+                "确认建设",
+                confirm))
+            {
+                return;
+            }
+
+            confirm();
+        }
+
+        private void RequestCampUpgradeConfirmation(string cardId)
+        {
+            CardDef card = CardCatalog.Find(cardId);
+            string cardName = card != null ? card.DisplayName : cardId;
+            string effect = card != null ? card.EffectText : cardId;
+            Action confirm = () =>
+            {
+                string result = RunSession.FreeUpgradeCard(cardId);
+                _campMode = CampPageMode.None;
+                ShowCampPage(result);
+            };
+
+            string detail = "最终操作：升级《" + cardName + "》"
+                + "\n最终成本：免费（消耗铁匠铺的一次性升级机会）"
+                + "\n升级后效果：" + effect
+                + "\n\n确认后本局内无法撤销；取消不会消耗升级机会。";
+            if (_accessibility != null && _accessibility.RequestConfirmation(
+                "确认升级卡牌", detail, "确认升级", confirm))
+            {
+                return;
+            }
+
+            confirm();
+        }
+
         private void RefreshCampButtons()
         {
             ResolveCampLayoutRefs();
@@ -677,6 +823,7 @@ namespace OneJourney.Core
 
             ClearChildren(_campTeamContainer);
             ClearChildren(_campFacilityContainer);
+            _campPreferredButton = null;
             if (_campLayoutRoot != null) _campLayoutRoot.SetActive(true);
 
             RenderCampTeamRoster();
@@ -701,6 +848,7 @@ namespace OneJourney.Core
 
             LayoutRebuilder.ForceRebuildLayoutImmediate((RectTransform)_campTeamContainer);
             LayoutRebuilder.ForceRebuildLayoutImmediate((RectTransform)_campFacilityContainer);
+            ApplyAccessibilityScope();
         }
 
         private void RenderCampMainFacilities()
@@ -728,12 +876,8 @@ namespace OneJourney.Core
                         new Color(0.30f, 0.38f, 0.48f));
                     if (block == null)
                     {
-                        string captured = building.Id;
-                        build.GetComponent<Button>().onClick.AddListener(() =>
-                        {
-                            string result = RunSession.TryBuildBuilding(captured);
-                            ShowCampPage(result);
-                        });
+                        BuildingDef captured = building;
+                        build.GetComponent<Button>().onClick.AddListener(() => RequestBuildConfirmation(captured));
                     }
                     continue;
                 }
@@ -865,6 +1009,12 @@ namespace OneJourney.Core
                 view.SetSecondaryAction("治病", new Color(0.25f, 0.42f, 0.32f),
                     () => CampServiceChosen(captured, true));
             }
+
+            if (_campPreferredButton == null)
+            {
+                if (canFatigue) _campPreferredButton = view.PrimaryActionButton;
+                else if (canDisease) _campPreferredButton = view.SecondaryActionButton;
+            }
         }
 
         private void CampServiceChosen(string unitId, bool removeDisease)
@@ -892,12 +1042,7 @@ namespace OneJourney.Core
                     var go = MakeCampFacilityButton("升级 " + displayName,
                         card != null ? card.EffectText : id, false, new Color(0.30f, 0.38f, 0.48f));
                     string captured = id;
-                    go.GetComponent<Button>().onClick.AddListener(() =>
-                    {
-                        string result = RunSession.FreeUpgradeCard(captured);
-                        _campMode = CampPageMode.None;
-                        ShowCampPage(result);
-                    });
+                    go.GetComponent<Button>().onClick.AddListener(() => RequestCampUpgradeConfirmation(captured));
                     any = true;
                 }
             }
@@ -970,6 +1115,7 @@ namespace OneJourney.Core
             var view = Instantiate(_campFacilityCardPrefab, _campFacilityContainer);
             view.name = "CampDynamic_Facility_" + title;
             view.SetContent(title, detail, disabled, color);
+            if (!disabled && _campPreferredButton == null) _campPreferredButton = view.Button;
             return view.gameObject;
         }
 
@@ -1050,17 +1196,29 @@ namespace OneJourney.Core
             }
 
             _eventPageView.RebuildLayout();
+            ApplyAccessibilityScope();
+        }
+
+        private static string PendingEventCostText()
+        {
+            if (RunSession.CurrentEvent == null || RunSession.PendingEventOptionIndex < 0
+                || RunSession.PendingEventOptionIndex >= RunSession.CurrentEvent.Options.Length)
+                return "无资源消耗";
+
+            EventOptionDef option = RunSession.CurrentEvent.Options[RunSession.PendingEventOptionIndex];
+            return AccessibilityCopy.FormatCosts(option.CostFood, option.CostWealth, option.CostReputation, 0);
         }
 
         private string EventPromptText()
         {
             if (!string.IsNullOrEmpty(_eventFeedback)) return _eventFeedback;
+            string cost = PendingEventCostText();
             switch (RunSession.PendingEventChoice)
             {
-                case EventOptionChoiceKind.RemoveCard: return "选择一张要移除的卡牌。";
-                case EventOptionChoiceKind.UpgradeCard: return "选择一张要升级的卡牌。";
-                case EventOptionChoiceKind.StatusFatigue: return "选择一名队员移除疲劳。";
-                case EventOptionChoiceKind.StatusDiseaseOrFatigue: return "选择队员和要移除的状态。";
+                case EventOptionChoiceKind.RemoveCard: return "选择一张要移除的卡牌。最终确认后支付：" + cost + "；可取消返回。";
+                case EventOptionChoiceKind.UpgradeCard: return "选择一张要升级的卡牌。最终确认后支付：" + cost + "；可取消返回。";
+                case EventOptionChoiceKind.StatusFatigue: return "选择一名队员移除疲劳。最终确认后支付：" + cost + "；可取消返回。";
+                case EventOptionChoiceKind.StatusDiseaseOrFatigue: return "选择队员和要移除的状态。最终确认后支付：" + cost + "；可取消返回。";
                 default: return "选择一个行动。锁定选项会显示具体原因。";
             }
         }
@@ -1133,6 +1291,20 @@ namespace OneJourney.Core
                     RenderStatusUnitOptions(true);
                     break;
             }
+
+            AddEventChoiceCancelOption();
+        }
+
+        private void AddEventChoiceCancelOption()
+        {
+            var cancel = _eventPageView.AddOption(
+                "返",
+                "取消并返回事件选项",
+                "不支付资源",
+                "保留牌组、队伍与当前事件状态",
+                null,
+                new Color(0.25f, 0.34f, 0.48f));
+            cancel.Button.onClick.AddListener(CancelPendingEventChoice);
         }
 
         private void RenderStatusUnitOptions(bool includeDisease)
@@ -1287,6 +1459,31 @@ namespace OneJourney.Core
 
         private void OnEventCardChosen(string cardId)
         {
+            EventOptionDef option = null;
+            if (RunSession.CurrentEvent != null && RunSession.PendingEventOptionIndex >= 0
+                && RunSession.PendingEventOptionIndex < RunSession.CurrentEvent.Options.Length)
+                option = RunSession.CurrentEvent.Options[RunSession.PendingEventOptionIndex];
+
+            bool remove = RunSession.PendingEventChoice == EventOptionChoiceKind.RemoveCard;
+            bool upgrade = RunSession.PendingEventChoice == EventOptionChoiceKind.UpgradeCard;
+            CardDef card = CardCatalog.Find(cardId);
+            Action complete = () => CompleteEventCardChoice(cardId);
+
+            if ((remove || upgrade) && _accessibility != null
+                && _accessibility.RequestConfirmation(
+                    remove ? "确认移除卡牌" : "确认升级卡牌",
+                    AccessibilityCopy.EventCardConfirmation(option, card, remove),
+                    remove ? "确认移除" : "确认升级",
+                    complete))
+            {
+                return;
+            }
+
+            complete();
+        }
+
+        private void CompleteEventCardChoice(string cardId)
+        {
             string result = RunSession.ChooseEventCard(cardId);
             AfterEventChoice(result);
         }
@@ -1295,6 +1492,12 @@ namespace OneJourney.Core
         {
             string result = RunSession.ChooseEventStatusUnit(unitId, removeDisease);
             AfterEventChoice(result);
+        }
+
+        private void CancelPendingEventChoice()
+        {
+            string result = RunSession.CancelEventChoice();
+            ShowEventPage(result);
         }
 
         private void AfterEventChoice(string result)

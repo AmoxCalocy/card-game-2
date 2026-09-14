@@ -15,6 +15,7 @@ namespace OneJourney.Core
         [SerializeField] private Button _skipButton;
 
         public bool IsVisible => gameObject.activeSelf;
+        public Button ContinueButton => _continueButton;
 
         public void Show(TutorialEntry entry, int completedCount, UnityAction onDetail,
             UnityAction onContinue, UnityAction onSkip)
