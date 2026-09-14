@@ -378,5 +378,25 @@ aiEditMode: inherit
 - 回归修复：完整测试发现既有 `CampaignSaveTests.MapRoundTrip_RestoresCampaignAndRandomState` 稳定失败；`RunSession.TryContinue` 补写 `RunRecord` 的“继续游戏”一般记录，使读档后既保留旧记录也追加继续记录。
 - 验证：真实流程“新游戏→第一节点战斗→奖励→第二节点事件”按地图移动→粮食→出牌→共享能量→敌人意图→奖励→事件选择显示，地图主题不重复；帮助详情关闭后返回原引导；跳过全部前后种子、资源、风险、状态和地图不变；所有页面规则入口可用，Release 隐藏测试重置；继续游戏保留已完成主题，而四类新局入口均重新从地图移动开始。`TutorialProgressServiceTests` 7/7，完整 EditMode 358/358，Console 0 警告/错误；用户确认功能验证通过。
 
+## 2026-09-14 · A3-27 完成基础无障碍与输入检查（实现完成，等待用户完整验证）
+- 键盘与焦点：
+  - `AccessibilityInputController.cs`（新）— 场景级键盘导航：页面打开后自动选择首个有效操作；支持方向键与 `Tab / Shift+Tab` 循环、`Enter / Space` 确认、`Esc` 取消当前选牌/目标/事件子选择、`H / F1` 打开规则说明；焦点进入滚动列表时自动滚动到可见区域。
+  - 所有运行时 `Selectable` 追加独立高对比度焦点描边，不覆盖按钮、卡牌和节点原有颜色；战斗单体目标增加 `[可选目标]` 文字，手牌效果区增加攻击/防御/策略/战术/后勤类别文字，地图节点与风险继续使用图标+文字双重区分。
+  - `AccessibilityOverlayView.cs` + `Assets/Prefabs/AccessibilityOverlay.prefab`（新）— 承载安全确认模态框；按用户要求，曾实现的“当前焦点/快捷键”提示条已禁用，运行时不会显示。`SampleScene.unity` 的 `GameUi` 新增 `AccessibilityInputController`，Canvas 新增全屏 `AccessibilityOverlay` 实例。
+- 确认与取消语义：
+  - `AccessibilityCopy.cs`（新）统一生成建筑、事件卡牌与放弃奖励的最终成本/结果文案；确认框默认焦点为“取消”。
+  - 建造建筑、铁匠铺免费升级、事件移除/升级卡牌、放弃剩余奖励均增加最终确认与取消路径。
+  - `RunSession.ChooseEventOption` 对需要子选择的选项改为**最终确认目标时才扣费**；`CancelEventChoice` 只清待选状态并返回当前事件，不扣资源、不改牌组/队伍、不写结算记录。`EventTests.E07_Upgrade` 同步更新为延迟扣费断言。
+- 全屏与文字适配：
+  - `MapPage.prefab`、`EventPage.prefab`、`CampOptions.prefab` 根节点统一为 Canvas 全屏拉伸（基准 `1920×1080`），横向内容按 `8/7` 等比例放大。
+  - 地图页顶栏贴顶、路线区贴底；`MapPageView.RowY` 按路线区实际高度动态均分起点与四层节点，节点保留 56 本地单位安全边距，焦点描边不被裁切。
+  - 事件页插画/叙事/选项三栏高度扩为 945 本地单位，经 `8/7` 缩放后上下覆盖完整 1080；原有锚点使插画、叙事正文和选项滚动区随高度扩展。
+  - 营地页保留用户后续调整的 `HeaderPanel` 与 `CampLayout` 布局；修复 `FacilityGrid` 仍强制 `445×104` 覆盖卡片高度的问题，单元改为 `445×140`，与 `CampFacilityCard.prefab` 一致。另修复 `HandCard.prefab` 效果文字区域、`BattlePage/RightTitle` 与营地长建筑说明的边界。
+- 验证与测试：
+  - 新增 `AccessibilityTests.cs` 5 个 EditMode 用例：建筑确认文案、事件升级取消无副作用、移除卡取消无副作用、最终确认只扣费一次、确认文案完整性。
+  - Play Mode 已检查主菜单、地图、E01-E20、营地、战斗、奖励、帮助页和确认框：页面默认焦点有效，确认取消后状态不变；地图顶栏世界坐标到 1080、路线区到底部 0，事件三栏上下边界为 0/1080；营地设施卡实际尺寸统一 `445×140`。
+  - 活动 TMP 文字溢出与营地文字越出卡片边界均为 0；核心程序集已应用最新源码，Console 0 错误/警告。按协作规则未运行完整 Test Runner，等待用户执行完整自动化与手动键鼠验证。
+
 ## 进行中
-- 下一步：A3-27 完成基础无障碍与输入检查（等待用户明确指示开始）。
+- A3-27 等待用户完成完整 EditMode Test Runner 与键盘/鼠标手动验收。
+- 验证通过后，下一步为 A3-28 执行数值基线与可玩性测试；尚未开始，需用户明确指示。
