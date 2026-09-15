@@ -4,7 +4,7 @@ injectMode: inherit
 aiEditMode: inherit
 ---
 
-# 架构与文件职责（截至 2026-09-14）
+# 架构与文件职责（截至 2026-09-15）
 
 ## 目录与程序集
 - `Assets/Scripts/Core/` — 核心运行时逻辑（程序集 OneJourney.Core，无外部引用）。
@@ -28,7 +28,7 @@ aiEditMode: inherit
 - 节点战斗与区域切换（A2-23）：`StartNodeCombat(node)`（战斗/精英/首领节点按种子抽敌人→进入战斗，遭遇类型 Normal/Elite/Boss，伏击优先；**状态转移失败检查**，失败 End+return false）、`StartAmbushCombat`（§9.1：草原 EN01+EN02 / 密林 EN06+EN08，按精英奖励结算）、`AdvanceToNextRegion`（草原首领胜利→密林：保留牌组/伙伴/资源/遗物/建筑，重置风险与区域级一次性标记，Combat→Reward）、`RegionDisplayName()`（奖励区域池）。
 - 结局与结算（A2-24）：`SettlementSummary`（结果/原因/用时/区域进度/最终牌组/伙伴/资源/建筑/遗物/种子）+ `LastSettlement` 快照 + `EnterSettlement(victory, reason)`（Victory/Defeat→Settlement）+ `EnterVictoryState`（密林首领胜利）/`EnterDefeatState`（主角死亡）/`EnterRewardState`（普通/精英胜利）+ `MarkSessionStart`（会话计时）+ `RegionMapRegion`；胜利分支统一状态转移（首领密林→Victory、草原→切区域、普通/精英→Reward，修复战斗胜利后状态残留 Combat）；A3-25 起进入结算时先清理战斗临时态并删除活动存档，避免结局后继续到旧检查点。
 - 存档协调（A3-25，`RunSession.cs` 内）：`CanCaptureCheckpoint`/`CaptureSaveData`/`TryRestoreFromSaveData` 负责把各静态系统聚合为完整战役快照并在全量校验后一次性恢复；`TryContinue` 按 Map/NodeEntry/Camp 分流，成功后同时写入页面结算记录和 `RunRecord` 的“继续游戏”一般记录；`CompleteRewardAndReturnToMap` 保证奖励完成→清战斗→回地图→存档的顺序；`EventFlags` 保存已完成事件 ID。自动存档调用只放在明确的领域完成点，不订阅通用 `Changed` 事件。
-- `GameStartParameters.cs` — 第一版起始参数与全局规则常量（唯一代码来源，对应《MVP 配置表》）：主角 45 血/6 指令伤害、上阵 4 人、牌组 10–30、手牌 3/1/5、能量 3、起始资源（粮 14 财 30 声望 0 建材 0）、粮食不足惩罚（+1 疲劳、风险 +2）、风险常量（阈值 10、危机后重置 5、草原/密林移动 +1/+2、精英额外 +1、营地结算 -2）、起始牌组 10 张（C01×4、C09×3、C17、C33、C36）、垂直切片目标 EN10。
+- `GameStartParameters.cs` — 第一版起始参数与全局规则常量（唯一代码来源，对应《MVP 配置表》）：主角 45 血/6 指令伤害、上阵 4 人、牌组 10–30、手牌初始 3、回合开始基础至少抽 1 且少于 4 时补至 4、上限 5、能量 3、起始资源（粮 14 财 30 声望 0 建材 0）、粮食不足惩罚（+1 疲劳、风险 +2）、风险常量（阈值 10、危机后重置 5、草原/密林移动 +1/+2、精英额外 +1、营地结算 -2）、起始牌组 10 张（C01×4、C09×3、C17、C33、C36）、垂直切片目标 EN10。
 
 ## 内容系统
 - `ContentBase`（`ContentModels.cs`）— 内容数据基类 `ScriptableObject`（id/displayName/description）。七类内容：`CardData`（卡牌，cost 0–4、targetType、effectText）、`PartnerData`（伙伴，maxHp 1–100、commandDamage 0–20、role/joinCardId）、`EnemyData`（敌人，maxHp 1–200、intents）、`EventData`（事件，options≥2）、`RelicData`（遗物，effectText）、`NodeData`（节点，enemyPoolIds/eventPoolIds）、`BuildingData`（建筑，四项成本 0–999、effectText）。
@@ -57,7 +57,8 @@ aiEditMode: inherit
 ## 战斗系统
 - `CombatUnit.cs` — 战斗单位：`Id`/`DisplayName`/`MaxHp`/`CurrentHp`/`Armor`/`IsAlive`/`IsPlayerCharacter`；`TakeDamage`（优先扣护甲再扣血，返回实际伤害）、`Heal`、`Clone`（独立副本隔离原始数据）；工厂方法 `CreatePlayer`/`CreateCompanion`/`CreateEnemy`。`FocusFireExtra`（集火标记额外伤害）。
 - `CombatDeck.cs` — 战斗独立牌堆：`DrawPile`/`Hand`/`DiscardPile`/`ExhaustZone`；`InitFromCampaign`（复制+洗牌）、`DrawToHand`（空堆洗回/手牌上限）、`DiscardHand`（临时卡 `TEMP_` 前缀→消耗区，普通卡→弃牌堆）、`ExhaustFromHand`/`DiscardFromHand`、`Clone`。
-- `CombatManager.cs` — 战斗生命周期 + 回合结构 + 敌人行动：`Phase`/`TurnPhase`/`TurnNumber`/`Energy`（MaxEnergy=3 每回合重置）；`Morale`/`MoraleUsedThisTurn`/`Plunder`；`PendingBonusDraw`（下回合额外抽牌）/`CostReductionRemaining`（本回合减费）；`RevealEnemyIntents`（BeginPlayerTurn 揭示敌人意图供玩家规划）、`ExecuteEnemyActions`（攻击/全体攻击/防御/掠夺四类执行，行动前重验目标存活，无目标默认跳过；支持 `TargetsPlayer` 诱饵定向）、`PickDefaultTarget`（生命百分比最低，平局主角优先）、`PlayerCharacter()`（获取存活主角）；`CanPlayerAct`/`CanSpendEnergy`/`SpendEnergy`/`RefundEnergy`；`ForceDefeat`/`End`。
+- `CombatManager.cs` — 战斗生命周期 + 回合结构 + 敌人行动：`Phase`/`TurnPhase`/`TurnNumber`/`Energy`（MaxEnergy=3 每回合重置）；`BeginPlayerTurn` 按“手牌少于 4 张补至 4 张，否则基础抽 1 张，手牌上限 5 张”计算基础抽牌，`PendingBonusDraw` 在基础抽牌后叠加；`Morale`/`MoraleUsedThisTurn`/`Plunder`；`CostReductionRemaining`（本回合减费）；`RevealEnemyIntents`（BeginPlayerTurn 揭示敌人意图供玩家规划）、`ExecuteEnemyActions`（攻击/全体攻击/防御/掠夺四类执行，行动前重验目标存活，无目标默认跳过；支持 `TargetsPlayer` 诱饵定向）、`PickDefaultTarget`（生命百分比最低，平局主角优先）、`PlayerCharacter()`（获取存活主角）；`CanPlayerAct`/`CanSpendEnergy`/`SpendEnergy`/`RefundEnergy`；`ForceDefeat`/`End`。
+- `CombatManagerTests.cs` — 回合结构与能量测试；本轮新增初始回合手牌为 4、手牌不足时补至 4、已有 4 张仍基础抽 1 张的覆盖。
 - `CombatDeckTests.cs` — 13 个 EditMode 用例：副本独立/洗牌确定/同种子同序/弃牌堆洗回/两堆皆空/手牌上限/弃手牌/消耗/弃单张/Clone/临时卡隔离。
 - `CombatResolver.cs` — 目标选择与伤害结算：`ResolveTargets`（六种 TargetType，仅存活单位，无目标 out issue）、`ApplyDamage`（护甲吸收→生命→死亡→CheckEndCondition，返回可读结算文本；接入士气和集火标记）、`PlayCard(int handIndex, CombatUnit selectedTarget)`（完整出牌管线：费用校验→目标解析→移除手牌→`ApplyEffect` 分发 28 种效果→弃牌/消耗→结束检查）、`PlayTestCard`（保留为 Obsolete 测试兼容入口；`GameUi` 已不再绑定旧 TestPage 调试按钮）。
 - `CombatResolverTests.cs` — 18 个 EditMode 用例：目标范围/死亡排除/无目标报错/护甲恰好吸收/伤害多1/单体只伤一个/全体伤全部/批内击杀胜利/批内跳过死目标/能量不足/无目标退款。
@@ -69,8 +70,8 @@ aiEditMode: inherit
 - `CardCatalogTests.cs` — 27 个 EditMode 用例（A1-13）：目录完整性（6）/ 出牌基础流程（5）/ 各类卡牌效果（14）/ 边界与特殊机制（2）。
 - `PartnerRosterTests.cs` — 15 个 EditMode 用例（A2-15）：数据完整性/招募/上阵上限/未招募拒绝/死亡拒绝/BuildCombatTeam/SyncFromCombat/Clear。
 - `CampaignDeckTests.cs` — 12 个 EditMode 用例（A2-16）：牌组初始化/上下限/独立副本/奖励生成/领取/跳过。
-- `EnemyUnit.cs` — 敌人单位（继承 CombatUnit）：`EnemyIntentExec`（攻击/全体攻击/防御/掠夺 + 副作用 BleedStacks/DiseaseStacks + 诱饵标记 `TargetsPlayer`）+ `RollIntent`（种子驱动加权抽取）+ 10 种敌人工厂（EN01-EN10，按配置表 §5）；`Clone` 重写深拷贝意图。
-- `EnemyIntentTests.cs` — 12 个 EditMode 用例：同意图/零权重/首回合揭示/攻击/防御/掠夺/AOE/死敌跳过/无目标/默认目标选择/士气隔离。
+- `EnemyUnit.cs` — 敌人单位（继承 CombatUnit）：`EnemyIntentExec`（攻击/全体攻击/防御/掠夺 + 副作用 BleedStacks/DiseaseStacks + 诱饵标记 `TargetsPlayer`）+ `RollIntent`（种子驱动加权抽取）+ 10 种敌人工厂（EN01-EN10，按配置表 §5）；`Clone` 重写深拷贝意图。当前节奏基线：EN05/EN10 最大生命为 62/68；EN01/03/04/05/07/08/09/10 的防御意图护甲依次为 5/5/5/8/4/6/5/9。
+- `EnemyIntentTests.cs` — 覆盖意图抽取、权重边界、首回合揭示、攻击/防御/掠夺/AOE、死亡与无目标处理、默认目标和士气隔离；本轮新增 2 个首领生命及 8 个防御意图护甲的参数化配置校验。
 - `EncounterConfig.cs` — 9 组遭遇表（草原普通×2/精英/首领，密林普通×3/精英/首领，含标签/区域/类型）；`RunSession._testEncounterIndex` 翻页选择。
 
 ## 区域地图（A2-17 / A2-23）

@@ -26,7 +26,8 @@ namespace OneJourney.Core
 
     /// <summary>
     /// 战斗生命周期 + 回合结构（实施计划 A1-6 / A1-7）。
-    /// MVP 固定玩家先手，能量每回合重置为 3 且不保留，手牌保留但上限 5。
+    /// MVP 固定玩家先手，能量每回合重置为 3；回合开始至少抽 1 张，
+    /// 手牌少于 4 张时补至 4 张，未使用手牌保留且上限为 5 张。
     /// </summary>
     public static class CombatManager
     {
@@ -169,7 +170,7 @@ namespace OneJourney.Core
 
         // ------- 回合流转 -------
 
-        /// <summary>玩家回合开始：抽 1 张牌，重置能量为 3，结算回合开始状态。</summary>
+        /// <summary>玩家回合开始：至少抽 1 张，手牌少于目标数量时补齐；重置能量并结算回合开始状态。</summary>
         public static void BeginPlayerTurn()
         {
             if (!IsActive || Phase != CombatPhase.Running) return;
@@ -192,7 +193,9 @@ namespace OneJourney.Core
             // 敌人抽取下一意图（玩家回合可见，供玩家规划）
             RevealEnemyIntents();
 
-            int drawCount = GameStartParameters.CardsPerTurn + PendingBonusDraw;
+            int cardsNeededToTarget = GameStartParameters.TargetHandSize - Deck.HandSize;
+            int baseDrawCount = System.Math.Max(GameStartParameters.CardsPerTurn, cardsNeededToTarget);
+            int drawCount = baseDrawCount + PendingBonusDraw;
             PendingBonusDraw = 0;
             Deck.DrawToHand(drawCount, GameStartParameters.MaxHandSize);
             CurrentTurnPhase = TurnPhase.PlayerTurn;

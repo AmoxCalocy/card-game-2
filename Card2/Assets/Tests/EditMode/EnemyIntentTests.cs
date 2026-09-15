@@ -92,6 +92,35 @@ namespace OneJourney.Tests.EditMode
             }
         }
 
+        [TestCase("EN05", 62)]
+        [TestCase("EN10", 68)]
+        public void BossFactory_UsesReducedMaxHp(string enemyId, int expectedMaxHp)
+        {
+            var enemy = EnemyUnit.CreateById(enemyId);
+
+            Assert.IsNotNull(enemy);
+            Assert.AreEqual(expectedMaxHp, enemy.MaxHp);
+            Assert.AreEqual(expectedMaxHp, enemy.CurrentHp);
+        }
+
+        [TestCase("EN01", "架盾", 5)]
+        [TestCase("EN03", "架势", 5)]
+        [TestCase("EN04", "蛰伏", 5)]
+        [TestCase("EN05", "号令", 8)]
+        [TestCase("EN07", "菌壳", 4)]
+        [TestCase("EN08", "伏守", 6)]
+        [TestCase("EN09", "蓄势", 5)]
+        [TestCase("EN10", "树皮", 9)]
+        public void DefenseIntentFactory_UsesReducedArmor(string enemyId, string intentName, int expectedArmor)
+        {
+            var enemy = EnemyUnit.CreateById(enemyId);
+            var defense = enemy.Intents.Find(intent => intent.Kind == IntentKind.Defense);
+
+            Assert.IsNotNull(defense, enemyId + " 应包含防御意图");
+            Assert.AreEqual(intentName, defense.Name);
+            Assert.AreEqual(expectedArmor, defense.ArmorGain);
+        }
+
         // ---- 意图执行 ----
 
         [Test]
@@ -113,11 +142,11 @@ namespace OneJourney.Tests.EditMode
         {
             CombatManager.Init(_players, _enemies, _deck);
             var bandit = (EnemyUnit)CombatManager.EnemyTeam[0];
-            bandit.CurrentIntent = new EnemyIntentExec("架盾", IntentKind.Defense, 20) { ArmorGain = 6 };
+            bandit.CurrentIntent = bandit.Intents.Find(intent => intent.Kind == IntentKind.Defense);
 
             CombatManager.EndPlayerTurn();
 
-            Assert.AreEqual(6, bandit.Armor, "防御意图应获得护甲");
+            Assert.AreEqual(5, bandit.Armor, "路匪防御意图应获得调整后的 5 护甲");
         }
 
         [Test]

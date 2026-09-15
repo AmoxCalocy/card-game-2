@@ -121,13 +121,13 @@ namespace OneJourney.Core
             }
         }
 
-        /// <summary>路匪（EN01，草原普通）：砍击 6 伤(50)、勒索 4 伤+1 掠夺(30)、架盾 6 甲(20)。</summary>
+        /// <summary>路匪（EN01，草原普通）：砍击 6 伤(50)、勒索 4 伤+1 掠夺(30)、架盾 5 甲(20)。</summary>
         public static EnemyUnit CreateBandit()
         {
             var e = new EnemyUnit("EN01", "路匪", 28);
             e.Intents.Add(new EnemyIntentExec("砍击", IntentKind.Attack, 50) { Damage = 6 });
             e.Intents.Add(new EnemyIntentExec("勒索", IntentKind.Plunder, 30) { Damage = 4, PlunderStacks = 1 });
-            e.Intents.Add(new EnemyIntentExec("架盾", IntentKind.Defense, 20) { ArmorGain = 6 });
+            e.Intents.Add(new EnemyIntentExec("架盾", IntentKind.Defense, 20) { ArmorGain = 5 });
             return e;
         }
 
@@ -140,34 +140,34 @@ namespace OneJourney.Core
             return e;
         }
 
-        /// <summary>旱地掠手（EN03，草原精英）：劈砍 7 伤(45)、断筋斩 8 伤(35)、架势 7 甲(20)。</summary>
+        /// <summary>旱地掠手（EN03，草原精英）：劈砍 7 伤(45)、断筋斩 8 伤(35)、架势 5 甲(20)。</summary>
         public static EnemyUnit CreateScavenger()
         {
             var e = new EnemyUnit("EN03", "旱地掠手", 34);
             e.Intents.Add(new EnemyIntentExec("劈砍", IntentKind.Attack, 45) { Damage = 7 });
             e.Intents.Add(new EnemyIntentExec("断筋斩", IntentKind.Attack, 35) { Damage = 8 });
-            e.Intents.Add(new EnemyIntentExec("架势", IntentKind.Defense, 20) { ArmorGain = 7 });
+            e.Intents.Add(new EnemyIntentExec("架势", IntentKind.Defense, 20) { ArmorGain = 5 });
             return e;
         }
 
-        /// <summary>角兽（EN04，草原普通）：冲撞 10 伤(50)、践踏全体 5 伤(30)、蛰伏 6 甲(20)。</summary>
+        /// <summary>角兽（EN04，草原普通）：冲撞 10 伤(50)、践踏全体 5 伤(30)、蛰伏 5 甲(20)。</summary>
         public static EnemyUnit CreateHornBeast()
         {
             var e = new EnemyUnit("EN04", "角兽", 38);
             e.Intents.Add(new EnemyIntentExec("冲撞", IntentKind.Attack, 50) { Damage = 10 });
             e.Intents.Add(new EnemyIntentExec("践踏", IntentKind.AoeAttack, 30) { Damage = 5 });
-            e.Intents.Add(new EnemyIntentExec("蛰伏", IntentKind.Defense, 20) { ArmorGain = 6 });
+            e.Intents.Add(new EnemyIntentExec("蛰伏", IntentKind.Defense, 20) { ArmorGain = 5 });
             return e;
         }
 
-        /// <summary>草原劫首（EN05，草原首领）：重斩 10(40)、掠夺突袭 8+1掠夺(30)、断筋斩 9(20)、号令 10 甲(10)。</summary>
+        /// <summary>草原劫首（EN05，草原首领）：62 生命；重斩 10(40)、掠夺突袭 8+1掠夺(30)、断筋斩 9(20)、号令 8 甲(10)。</summary>
         public static EnemyUnit CreatePlainsBoss()
         {
-            var e = new EnemyUnit("EN05", "草原劫首", 72);
+            var e = new EnemyUnit("EN05", "草原劫首", 62);
             e.Intents.Add(new EnemyIntentExec("重斩", IntentKind.Attack, 40) { Damage = 10 });
             e.Intents.Add(new EnemyIntentExec("掠夺突袭", IntentKind.Plunder, 30) { Damage = 8, PlunderStacks = 1 });
             e.Intents.Add(new EnemyIntentExec("断筋斩", IntentKind.Attack, 20) { Damage = 9 });
-            e.Intents.Add(new EnemyIntentExec("号令", IntentKind.Defense, 10) { ArmorGain = 10 });
+            e.Intents.Add(new EnemyIntentExec("号令", IntentKind.Defense, 10) { ArmorGain = 8 });
             return e;
         }
 
@@ -180,44 +180,44 @@ namespace OneJourney.Core
             return e;
         }
 
-        /// <summary>菌疫兽（EN07，密林普通）：撞击 6(45)、孢子全体 3+1 疾病(35)、菌壳 5 甲(20)。</summary>
+        /// <summary>菌疫兽（EN07，密林普通）：撞击 6(45)、孢子全体 3+1 疾病(35)、菌壳 4 甲(20)。</summary>
         public static EnemyUnit CreateFungusBeast()
         {
             var e = new EnemyUnit("EN07", "菌疫兽", 32);
             e.Intents.Add(new EnemyIntentExec("撞击", IntentKind.Attack, 45) { Damage = 6 });
             e.Intents.Add(new EnemyIntentExec("孢子", IntentKind.AoeAttack, 35) { Damage = 3, DiseaseStacks = 1 });
-            e.Intents.Add(new EnemyIntentExec("菌壳", IntentKind.Defense, 20) { ArmorGain = 5 });
+            e.Intents.Add(new EnemyIntentExec("菌壳", IntentKind.Defense, 20) { ArmorGain = 4 });
             return e;
         }
 
-        /// <summary>林间伏匪（EN08，密林精英）：箭射 8(45)、洗劫 5+2 掠夺(35)、伏守 8 甲(20)。</summary>
+        /// <summary>林间伏匪（EN08，密林精英）：箭射 8(45)、洗劫 5+2 掠夺(35)、伏守 6 甲(20)。</summary>
         public static EnemyUnit CreateForestBandit()
         {
             var e = new EnemyUnit("EN08", "林间伏匪", 36);
             e.Intents.Add(new EnemyIntentExec("箭射", IntentKind.Attack, 45) { Damage = 8 });
             e.Intents.Add(new EnemyIntentExec("洗劫", IntentKind.Plunder, 35) { Damage = 5, PlunderStacks = 2 });
-            e.Intents.Add(new EnemyIntentExec("伏守", IntentKind.Defense, 20) { ArmorGain = 8 });
+            e.Intents.Add(new EnemyIntentExec("伏守", IntentKind.Defense, 20) { ArmorGain = 6 });
             return e;
         }
 
-        /// <summary>古牙野猪（EN09，密林普通）：破骨冲撞 10(50)、横扫全体 5(30)、蓄势 7 甲(20)。</summary>
+        /// <summary>古牙野猪（EN09，密林普通）：破骨冲撞 10(50)、横扫全体 5(30)、蓄势 5 甲(20)。</summary>
         public static EnemyUnit CreateBoar()
         {
             var e = new EnemyUnit("EN09", "古牙野猪", 44);
             e.Intents.Add(new EnemyIntentExec("破骨冲撞", IntentKind.Attack, 50) { Damage = 10 });
             e.Intents.Add(new EnemyIntentExec("横扫", IntentKind.AoeAttack, 30) { Damage = 5 });
-            e.Intents.Add(new EnemyIntentExec("蓄势", IntentKind.Defense, 20) { ArmorGain = 7 });
+            e.Intents.Add(new EnemyIntentExec("蓄势", IntentKind.Defense, 20) { ArmorGain = 5 });
             return e;
         }
 
-        /// <summary>密林守望者（EN10，密林首领）：树根重击 9(35)、孢子风暴全体 4+1 疾病(30)、缠枝 6(20)、树皮 12 甲(15)。</summary>
+        /// <summary>密林守望者（EN10，密林首领）：68 生命；树根重击 9(35)、孢子风暴全体 4+1 疾病(30)、缠枝 6(20)、树皮 9 甲(15)。</summary>
         public static EnemyUnit CreateJungleBoss()
         {
-            var e = new EnemyUnit("EN10", "密林守望者", 80);
+            var e = new EnemyUnit("EN10", "密林守望者", 68);
             e.Intents.Add(new EnemyIntentExec("树根重击", IntentKind.Attack, 35) { Damage = 9 });
             e.Intents.Add(new EnemyIntentExec("孢子风暴", IntentKind.AoeAttack, 30) { Damage = 4, DiseaseStacks = 1 });
             e.Intents.Add(new EnemyIntentExec("缠枝", IntentKind.Attack, 20) { Damage = 6 });
-            e.Intents.Add(new EnemyIntentExec("树皮", IntentKind.Defense, 15) { ArmorGain = 12 });
+            e.Intents.Add(new EnemyIntentExec("树皮", IntentKind.Defense, 15) { ArmorGain = 9 });
             return e;
         }
     }

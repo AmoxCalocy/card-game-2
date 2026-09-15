@@ -19,6 +19,7 @@ namespace OneJourney.Tests.EditMode
             Assert.AreEqual(3, GameStartParameters.BaseEnergy);
             Assert.AreEqual(3, GameStartParameters.InitialHandSize);
             Assert.AreEqual(1, GameStartParameters.CardsPerTurn);
+            Assert.AreEqual(4, GameStartParameters.TargetHandSize);
             Assert.AreEqual(5, GameStartParameters.MaxHandSize);
             Assert.AreEqual(10, GameStartParameters.MinDeckSize);
             Assert.AreEqual(30, GameStartParameters.MaxDeckSize);

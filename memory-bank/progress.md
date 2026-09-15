@@ -397,6 +397,16 @@ aiEditMode: inherit
   - Play Mode 已检查主菜单、地图、E01-E20、营地、战斗、奖励、帮助页和确认框：页面默认焦点有效，确认取消后状态不变；地图顶栏世界坐标到 1080、路线区到底部 0，事件三栏上下边界为 0/1080；营地设施卡实际尺寸统一 `445×140`。
   - 活动 TMP 文字溢出与营地文字越出卡片边界均为 0；核心程序集已应用最新源码，Console 0 错误/警告。按协作规则未运行完整 Test Runner，等待用户执行完整自动化与手动键鼠验证。
 
+## 2026-09-15 · 战斗回合节奏第一轮调整（用户已验证）
+- 背景：用户实玩反馈单局战斗回合偏多，本轮先提高回合过牌效率并降低首领与敌人防御意图的有效耐久，不调整地图层数、全局能量或玩家卡牌伤害。
+- 完成：
+  - `GameStartParameters.cs` — 新增 `TargetHandSize=4`；`CardsPerTurn=1` 改为回合开始的基础抽牌下限，初始手牌与上限仍为 3/5。
+  - `CombatManager.cs` — `BeginPlayerTurn` 改为手牌少于 4 张时补至 4 张，否则基础抽 1 张；手牌达到上限 5 张时不再抽取，`PendingBonusDraw` 在基础抽牌后继续叠加。
+  - `EnemyUnit.cs` — EN05 草原劫首生命 72→62、号令护甲 10→8；EN10 密林守望者生命 80→68、树皮护甲 12→9；其余防御意图调整为 EN01 6→5、EN03 7→5、EN04 6→5、EN07 5→4、EN08 8→6、EN09 7→5。
+  - `GameStartParametersTests.cs` / `CombatManagerTests.cs` / `EnemyIntentTests.cs` — 补充目标手牌常量、补牌到 4、已有 4 张至少抽 1 张、2 个首领生命和 8 个防御意图配置的回归覆盖。
+  - 数值源同步：`memory-bank/mvp-configuration-tables.xlsx`、`memory-bank/mvp-configuration-tables.md` 与 `design/mvp-configuration-tables.md` 已更新为同一规则和数值。
+- 验证：Unity 强制刷新后核心与测试程序集均重新生成，运行时读取到目标手牌 4、首领生命 62/68 和防御护甲 5/5/5/8/4/6/5/9，Console 0 错误/警告；用户确认本轮功能验证通过。
+
 ## 进行中
 - A3-27 等待用户完成完整 EditMode Test Runner 与键盘/鼠标手动验收。
 - 验证通过后，下一步为 A3-28 执行数值基线与可玩性测试；尚未开始，需用户明确指示。

@@ -175,6 +175,36 @@ namespace OneJourney.Tests.EditMode
             Assert.AreEqual(1, CombatManager.TurnNumber);
             Assert.AreEqual(CombatManager.MaxEnergy, CombatManager.Energy);
             Assert.AreEqual(TurnPhase.PlayerTurn, CombatManager.CurrentTurnPhase);
+            Assert.AreEqual(GameStartParameters.TargetHandSize, CombatManager.Deck.HandSize,
+                "初始 3 张加第 1 回合补牌后应有 4 张手牌");
+        }
+
+        [Test]
+        public void BeginPlayerTurn_HandBelowTarget_RefillsToFour()
+        {
+            CombatManager.Init(_players, _enemies, _deck);
+            while (CombatManager.Deck.HandSize > 1)
+            {
+                CombatManager.Deck.DiscardFromHand(CombatManager.Deck.Hand[0]);
+            }
+
+            CombatManager.EndPlayerTurn();
+
+            Assert.AreEqual(GameStartParameters.TargetHandSize, CombatManager.Deck.HandSize,
+                "手牌少于 4 张时，新回合应补至 4 张");
+        }
+
+        [Test]
+        public void BeginPlayerTurn_HandAtTarget_DrawsAtLeastOne()
+        {
+            CombatManager.Init(_players, _enemies, _deck);
+            Assert.AreEqual(GameStartParameters.TargetHandSize, CombatManager.Deck.HandSize);
+
+            CombatManager.EndPlayerTurn();
+
+            Assert.AreEqual(GameStartParameters.TargetHandSize + GameStartParameters.CardsPerTurn,
+                CombatManager.Deck.HandSize, "已有 4 张手牌时，新回合仍应基础抽 1 张");
+            Assert.AreEqual(GameStartParameters.MaxHandSize, CombatManager.Deck.HandSize);
         }
 
         [Test]

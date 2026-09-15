@@ -10,7 +10,8 @@ namespace OneJourney.Core
         public const int MaxPartySize = 4; // 主角 + 最多 3 名上阵伙伴
         public const int BaseEnergy = 3;
         public const int InitialHandSize = 3;
-        public const int CardsPerTurn = 1;
+        public const int CardsPerTurn = 1; // 回合开始基础抽牌下限
+        public const int TargetHandSize = 4; // 回合开始补牌目标
         public const int MaxHandSize = 5;
         public const int MinDeckSize = 10;
         public const int MaxDeckSize = 30;
